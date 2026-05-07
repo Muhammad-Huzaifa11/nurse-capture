@@ -1,0 +1,39 @@
+# === Node ===
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# === Build outputs ===
+dist/
+dist-ssr/
+build/
+*.local
+
+# === Env / secrets ===
+.env
+.env.*
+!.env.example
+
+# === Editor / OS ===
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# === Test / coverage ===
+coverage/
+.nyc_output/
+
+# === Misc local ===
+*.tgz
+.cache/
+.tmp/
