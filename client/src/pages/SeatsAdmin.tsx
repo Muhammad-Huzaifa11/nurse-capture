@@ -3,6 +3,7 @@ import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff, ShieldCheck, Trash2 
 import { AppHeader } from '@/components/AppHeader'
 import { Button, Card, Eyebrow, Pill, Select, TextArea } from '@/components/system/primitives'
 import { useAuth } from '@/auth/AuthContext'
+import { fetchJsonOrThrow } from '@/lib/fetchJson'
 import { cn } from '@/lib/utils'
 
 const UNIT_OPTIONS = [
@@ -59,11 +60,12 @@ export function SeatsAdmin() {
     setLoading(true)
     setError(null)
     try {
-      const res = await authFetch('/admin/seats')
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Could not load seats.')
-      }
+      const data = await fetchJsonOrThrow<{ ok: boolean; seats: SeatRow[] }>(
+        authFetch,
+        '/admin/seats',
+        undefined,
+        'Could not load seats.'
+      )
       setSeats(data.seats || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load seats.')
@@ -82,19 +84,20 @@ export function SeatsAdmin() {
     setCreating(true)
     setFormError(null)
     try {
-      const res = await authFetch('/admin/seats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          unitKey: formUnit,
-          shift: formShift,
-          notes: formNotes.trim() || undefined,
-        }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Could not create seat.')
-      }
+      const data = await fetchJsonOrThrow<{ ok: boolean; seat: SeatRow }>(
+        authFetch,
+        '/admin/seats',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            unitKey: formUnit,
+            shift: formShift,
+            notes: formNotes.trim() || undefined,
+          }),
+        },
+        'Could not create seat.'
+      )
       setSeats((prev) => [data.seat, ...prev])
       setHighlightId(data.seat.id)
       setFormNotes('')
@@ -108,15 +111,16 @@ export function SeatsAdmin() {
 
   async function handleToggleActive(seat: SeatRow) {
     try {
-      const res = await authFetch(`/admin/seats/${seat.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !seat.isActive }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Could not update seat.')
-      }
+      const data = await fetchJsonOrThrow<{ ok: boolean; seat: SeatRow }>(
+        authFetch,
+        `/admin/seats/${seat.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive: !seat.isActive }),
+        },
+        'Could not update seat.'
+      )
       setSeats((prev) => prev.map((s) => (s.id === seat.id ? data.seat : s)))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update seat.')
@@ -125,13 +129,12 @@ export function SeatsAdmin() {
 
   async function handleRotate(seat: SeatRow) {
     try {
-      const res = await authFetch(`/admin/seats/${seat.id}/rotate-code`, {
-        method: 'POST',
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Could not rotate code.')
-      }
+      const data = await fetchJsonOrThrow<{ ok: boolean; seat: SeatRow }>(
+        authFetch,
+        `/admin/seats/${seat.id}/rotate-code`,
+        { method: 'POST' },
+        'Could not rotate code.'
+      )
       setSeats((prev) => prev.map((s) => (s.id === seat.id ? data.seat : s)))
       setHighlightId(seat.id)
       window.setTimeout(() => setHighlightId(null), 2400)
@@ -142,11 +145,12 @@ export function SeatsAdmin() {
 
   async function handleDelete(seat: SeatRow) {
     try {
-      const res = await authFetch(`/admin/seats/${seat.id}`, { method: 'DELETE' })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Could not delete seat.')
-      }
+      await fetchJsonOrThrow<{ ok: boolean; id: string }>(
+        authFetch,
+        `/admin/seats/${seat.id}`,
+        { method: 'DELETE' },
+        'Could not delete seat.'
+      )
       setSeats((prev) => prev.filter((s) => s.id !== seat.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete seat.')

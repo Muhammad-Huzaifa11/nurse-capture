@@ -1,4 +1,5 @@
 const { Event } = require('./models/event');
+const { unitLabel, shiftLabel } = require('./constants/labels');
 
 /** Dashboard unit filter → Mongo query on unitKey */
 function unitFilterQuery(unit) {
@@ -146,6 +147,60 @@ function formatMonthLabel(isoMonth) {
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-US', { month: 'short' });
 }
 
+function granularityGroupConfig(granularity) {
+  if (granularity === 'day') {
+    return {
+      groupId: {
+        $dateToString: { format: '%Y-%m-%d', date: timestampExpr(), timezone: 'UTC' },
+      },
+      sortStage: { $sort: { _id: 1 } },
+    };
+  }
+  if (granularity === 'week') {
+    return {
+      groupId: {
+        year: { $isoWeekYear: { date: timestampExpr(), timezone: 'UTC' } },
+        week: { $isoWeek: { date: timestampExpr(), timezone: 'UTC' } },
+      },
+      sortStage: { $sort: { '_id.year': 1, '_id.week': 1 } },
+    };
+  }
+  return {
+    groupId: {
+      $dateToString: { format: '%Y-%m', date: timestampExpr(), timezone: 'UTC' },
+    },
+    sortStage: { $sort: { _id: 1 } },
+  };
+}
+
+function buildSignalGroupPipeline(match, groupId, sortStage) {
+  return [
+    { $match: match },
+    {
+      $group: {
+        _id: groupId,
+        interruptions: {
+          $sum: { $cond: [{ $eq: ['$signalType', 'interruption'] }, 1, 0] },
+        },
+        compensations: {
+          $sum: { $cond: [{ $eq: ['$signalType', 'compensation'] }, 1, 0] },
+        },
+      },
+    },
+    sortStage,
+  ];
+}
+
+function labelForGranularity(granularity, groupId) {
+  if (granularity === 'day') {
+    const [y, mo, da] = groupId.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, mo - 1, da));
+    return dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+  }
+  if (granularity === 'week') return `W${groupId.week}`;
+  return formatMonthLabel(groupId);
+}
+
 /**
  * GET /analytics/timeseries?range=7d&granularity=day|week|month&unit=all
  */
@@ -162,57 +217,16 @@ async function getTimeseries(req, res, next) {
 
     const match = { ...unitQ, ...matchTimeRange(start, end) };
 
-    let groupId;
-    let sortStage = { $sort: { _id: 1 } };
-
-    if (granularity === 'day') {
-      groupId = {
-        $dateToString: { format: '%Y-%m-%d', date: timestampExpr(), timezone: 'UTC' },
-      };
-    } else if (granularity === 'week') {
-      groupId = {
-        year: { $isoWeekYear: { date: timestampExpr(), timezone: 'UTC' } },
-        week: { $isoWeek: { date: timestampExpr(), timezone: 'UTC' } },
-      };
-      sortStage = { $sort: { '_id.year': 1, '_id.week': 1 } };
-    } else {
-      groupId = {
-        $dateToString: { format: '%Y-%m', date: timestampExpr(), timezone: 'UTC' },
-      };
-    }
-
-    const rows = await Event.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: groupId,
-          interruptions: {
-            $sum: { $cond: [{ $eq: ['$signalType', 'interruption'] }, 1, 0] },
-          },
-          compensations: {
-            $sum: { $cond: [{ $eq: ['$signalType', 'compensation'] }, 1, 0] },
-          },
-        },
-      },
-      sortStage,
-    ]);
+    const { groupId, sortStage } = granularityGroupConfig(granularity);
+    const rows = await Event.aggregate(buildSignalGroupPipeline(match, groupId, sortStage));
 
     const bucketMap = new Map();
     for (const row of rows) {
-      let key;
-      let label;
-      if (granularity === 'day') {
-        key = row._id;
-        const [y, mo, da] = row._id.split('-').map(Number);
-        const dt = new Date(Date.UTC(y, mo - 1, da));
-        label = dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
-      } else if (granularity === 'week') {
-        key = `${row._id.year}-W${String(row._id.week).padStart(2, '0')}`;
-        label = `W${row._id.week}`;
-      } else {
-        key = row._id;
-        label = formatMonthLabel(row._id);
-      }
+      const key =
+        granularity === 'week'
+          ? `${row._id.year}-W${String(row._id.week).padStart(2, '0')}`
+          : row._id;
+      const label = labelForGranularity(granularity, row._id);
       bucketMap.set(key, {
         key,
         label,
@@ -420,24 +434,6 @@ async function getByUnit(req, res, next) {
   }
 }
 
-function unitLabel(unitKey) {
-  const map = {
-    icu: 'ICU',
-    'med-surg': 'Med surg',
-    ed: 'ED',
-    stepdown: 'Stepdown',
-    other: 'Other',
-    'nicu-a': 'ICU',
-    'nicu-b': 'ICU',
-  };
-  return map[unitKey] || unitKey || 'Unknown';
-}
-
-function shiftLabel(shift) {
-  const map = { day: 'Day', evening: 'Evening', night: 'Night' };
-  return map[shift] || shift || 'Unknown';
-}
-
 async function getRatioTrend(req, res, next) {
   try {
     req.query.granularity = req.query.granularity || 'day';
@@ -446,41 +442,13 @@ async function getRatioTrend(req, res, next) {
     const { start, end, windowLabel } = resolveTimeWindow(req.query);
     const unitQ = unitFilterQuery(unit);
 
-    const groupId =
-      granularity === 'day'
-        ? { $dateToString: { format: '%Y-%m-%d', date: timestampExpr(), timezone: 'UTC' } }
-        : granularity === 'week'
-          ? {
-              year: { $isoWeekYear: { date: timestampExpr(), timezone: 'UTC' } },
-              week: { $isoWeek: { date: timestampExpr(), timezone: 'UTC' } },
-            }
-          : { $dateToString: { format: '%Y-%m', date: timestampExpr(), timezone: 'UTC' } };
-
-    const sortStage =
-      granularity === 'week' ? { $sort: { '_id.year': 1, '_id.week': 1 } } : { $sort: { _id: 1 } };
-
-    const rows = await Event.aggregate([
-      { $match: { ...unitQ, ...matchTimeRange(start, end) } },
-      {
-        $group: {
-          _id: groupId,
-          interruptions: { $sum: { $cond: [{ $eq: ['$signalType', 'interruption'] }, 1, 0] } },
-          compensations: { $sum: { $cond: [{ $eq: ['$signalType', 'compensation'] }, 1, 0] } },
-        },
-      },
-      sortStage,
-    ]);
+    const { groupId, sortStage } = granularityGroupConfig(granularity);
+    const rows = await Event.aggregate(
+      buildSignalGroupPipeline({ ...unitQ, ...matchTimeRange(start, end) }, groupId, sortStage)
+    );
 
     const points = rows.map((row) => {
-      let label = '';
-      if (granularity === 'day') {
-        const [y, mo, da] = row._id.split('-').map(Number);
-        label = new Date(Date.UTC(y, mo - 1, da)).toLocaleDateString('en-US', {
-          weekday: 'short',
-          timeZone: 'UTC',
-        });
-      } else if (granularity === 'week') label = `W${row._id.week}`;
-      else label = formatMonthLabel(row._id);
+      const label = labelForGranularity(granularity, row._id);
       const ratio = row.interruptions > 0 ? Number((row.compensations / row.interruptions).toFixed(2)) : 0;
       return { label, interruptions: row.interruptions, compensations: row.compensations, ratio };
     });

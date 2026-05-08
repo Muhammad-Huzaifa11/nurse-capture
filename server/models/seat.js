@@ -1,20 +1,7 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { SHIFTS, UNIT_KEYS } = require('./event');
-
-const UNIT_LABELS = {
-  icu: 'ICU',
-  'med-surg': 'Med surg',
-  ed: 'ED',
-  stepdown: 'Stepdown',
-  other: 'Other',
-};
-
-const SHIFT_LABELS = {
-  night: 'Night',
-  day: 'Day',
-  evening: 'Evening',
-};
+const { UNIT_LABELS, SHIFT_LABELS } = require('../constants/labels');
 
 /** Build a human-readable label like "NICU A · Day". */
 function buildSeatLabel(unitKey, shift) {

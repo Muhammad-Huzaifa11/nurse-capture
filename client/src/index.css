@@ -223,6 +223,12 @@
         animation: fade-in 200ms ease-out;
     }
 
+    @keyframes shimmer {
+        100% {
+            transform: translateX(100%);
+        }
+    }
+
     @keyframes bar-grow {
         from {
             transform: scaleY(0);

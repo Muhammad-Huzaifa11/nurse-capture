@@ -125,6 +125,19 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * Keep heavy charting code out of the initial app chunk.
+         * This pairs with route-level lazy loading in App routes.
+         */
+        manualChunks(id) {
+          if (id.includes('node_modules/recharts')) return 'recharts-vendor'
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       // Browser calls same origin: /api/... → Vite forwards to Express (no CORS hassle in dev)
