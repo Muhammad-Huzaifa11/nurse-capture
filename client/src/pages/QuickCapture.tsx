@@ -67,12 +67,13 @@ function SeatGate() {
   return (
     <div className="min-h-svh bg-[var(--color-bg-base)]">
       <AppHeader />
-      <main className="mx-auto w-full max-w-[420px] px-5 pt-12 pb-16">
-        <div className="surface-card fade-in p-6">
+      <main className="mx-auto w-full max-w-[520px] px-5 pt-10 pb-16">
+        <div className="rounded-[var(--radius-lg)] bg-[var(--color-bg-raised)] p-3 shadow-[var(--shadow-token-sm)]">
+          <div className="surface-card fade-in p-6">
           <span className="flex size-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-brand-purple-tint)] text-[var(--color-brand-purple)]">
             <KeyRound className="size-4" strokeWidth={1.75} aria-hidden />
           </span>
-          <h1 className="mt-4 text-xl-tight text-[var(--color-text-primary)]">
+          <h1 className="mt-4 text-xl-tight font-semibold text-[var(--color-text-primary)]">
             Enter your unit code
           </h1>
           <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
@@ -130,6 +131,7 @@ function SeatGate() {
           <p className="mt-5 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
             We don't track who tapped — only which unit and shift the tap came from.
           </p>
+          </div>
         </div>
       </main>
     </div>
@@ -174,6 +176,7 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
   const [note, setNote] = useState('')
   const [showContext, setShowContext] = useState(false)
+  const [confirmChangeOpen, setConfirmChangeOpen] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [interruptionStatus, setInterruptionStatus] = useState<CardStatus>('idle')
   const [compensationStatus, setCompensationStatus] = useState<CardStatus>('idle')
@@ -265,141 +268,213 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
     <div className="min-h-svh bg-[var(--color-bg-base)]">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-[480px] px-5 pt-8 pb-16">
-        {/* Context chip */}
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] px-4 py-2.5 shadow-[var(--shadow-token-sm)]">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span
-              className={cn(
-                'size-2 shrink-0 rounded-full',
-                isOnline
-                  ? 'bg-[var(--color-brand-teal)]'
-                  : 'bg-[var(--color-warning)]'
-              )}
-              aria-hidden
-            />
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium leading-tight text-[var(--color-text-primary)]">
-                {seat.label}
-              </p>
-              <p className="text-[11px] leading-tight text-[var(--color-text-muted)]">
-                Captures will be tagged to this unit & shift
+      <main className="mx-auto w-full max-w-[560px] px-5 pt-8 pb-16">
+        <div className="rounded-[var(--radius-lg)] bg-[var(--color-bg-raised)] p-3 shadow-[var(--shadow-token-sm)]">
+          <div className="rounded-[var(--radius-lg)] bg-[var(--color-bg-surface)] px-4 py-4 shadow-[var(--shadow-token-sm)]">
+            {/* Seat context (its own card) */}
+            <div className="rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-raised)] px-4 py-3 shadow-[var(--shadow-token-sm)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span
+                    className={cn(
+                      'mt-1 size-2 shrink-0 rounded-full',
+                      isOnline ? 'bg-[var(--color-brand-teal)]' : 'bg-[var(--color-warning)]'
+                    )}
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium leading-tight text-[var(--color-text-primary)]">
+                      {seat.label}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+                      <span className="rounded-full border border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] px-2 py-0.5 font-medium">
+                        {seat.unitKey.toUpperCase()}
+                      </span>
+                      <span className="rounded-full border border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] px-2 py-0.5 font-medium">
+                        {seat.shift.toUpperCase()}
+                      </span>
+                      <span className="ml-1 hidden sm:inline">· Captures tagged to this unit & shift</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmChangeOpen(true)}
+                  className="shrink-0 rounded-[var(--radius-sm)] px-2 py-1 text-[12px] font-medium text-[var(--color-brand-purple)] outline-none transition-colors hover:bg-[var(--color-brand-purple-tint)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2"
+                >
+                  Change
+                </button>
+              </div>
+            </div>
+
+            {/* Gap, then connectivity */}
+            <div className="mt-4">
+              <ConnectivityRow isOnline={isOnline} isStale={isStale} pendingCount={pendingCount} />
+            </div>
+
+            <div className="mb-6 mt-6 space-y-1.5">
+              <h1 className="text-2xl-tight font-semibold text-[var(--color-text-primary)]">
+                Quick capture
+              </h1>
+              <p className="text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
+                Tap one. Everything else is optional.
               </p>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => clearSeat()}
-            className="shrink-0 rounded-[var(--radius-sm)] px-2 py-1 text-[12px] font-medium text-[var(--color-brand-purple)] outline-none transition-colors hover:bg-[var(--color-brand-purple-tint)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2"
-          >
-            Change
-          </button>
-        </div>
 
-        {/* Connectivity / pending-sync indicator */}
-        <ConnectivityRow
-          isOnline={isOnline}
-          isStale={isStale}
-          pendingCount={pendingCount}
-        />
-
-        <div className="mb-6 mt-6 space-y-1.5">
-          <h1 className="text-2xl-tight text-[var(--color-text-primary)]">Quick capture</h1>
-          <p className="text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
-            Tap one. Everything else is optional.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <CaptureCard
-            tone="purple"
-            title="Workflow interruption"
-            subtitle="Something pulled you away from your intended task."
-            icon={<Zap className="size-5" strokeWidth={2} aria-hidden />}
-            status={interruptionStatus}
-            disabled={isAnySubmitting && interruptionStatus !== 'submitting'}
-            onClick={() => submitSignal('interruption')}
-          />
-          <CaptureCard
-            tone="teal"
-            title="Workflow compensation"
-            subtitle="Something you did to work around a gap or problem."
-            icon={<RefreshCw className="size-5" strokeWidth={2} aria-hidden />}
-            status={compensationStatus}
-            disabled={isAnySubmitting && compensationStatus !== 'submitting'}
-            onClick={() => submitSignal('compensation')}
-          />
-        </div>
-
-        <div className="mt-3 min-h-5">
-          {submitError ? (
-            <p
-              role="alert"
-              className="text-center text-[12px] font-medium text-[var(--color-danger)]"
-            >
-              {submitError}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="mt-5 rounded-[var(--radius-lg)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-raised)]">
-          <button
-            type="button"
-            onClick={() => setShowContext((v) => !v)}
-            aria-expanded={showContext}
-            aria-controls="optional-note-panel"
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[13px] outline-none transition-colors rounded-[var(--radius-lg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2"
-          >
-            <span className="flex flex-col">
-              <span className="font-medium text-[var(--color-text-primary)]">Add a note</span>
-              <span className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
-                {note.trim()
-                  ? 'Note will be attached to your next tap.'
-                  : 'Optional — short context, no patient details.'}
-              </span>
-            </span>
-            {showContext ? (
-              <ChevronUp className="size-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden />
-            ) : (
-              <ChevronDown className="size-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden />
-            )}
-          </button>
-
-          {showContext && (
-            <div
-              id="optional-note-panel"
-              className="panel-expand space-y-2 border-t-[0.5px] border-[var(--color-border-soft)] px-4 py-4"
-            >
-              <label
-                htmlFor="note"
-                className="block text-[12px] font-medium text-[var(--color-text-secondary)]"
-              >
-                Quick note
-              </label>
-              <TextArea
-                id="note"
-                rows={3}
-                maxLength={500}
-                placeholder="What happened? No patient details."
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
+            <div className="space-y-3">
+              <CaptureCard
+                tone="purple"
+                title="Workflow interruption"
+                subtitle="Something pulled you away from your intended task."
+                icon={<Zap className="size-5" strokeWidth={2} aria-hidden />}
+                status={interruptionStatus}
+                disabled={isAnySubmitting && interruptionStatus !== 'submitting'}
+                onClick={() => submitSignal('interruption')}
+              />
+              <CaptureCard
+                tone="teal"
+                title="Workflow compensation"
+                subtitle="Something you did to work around a gap or problem."
+                icon={<RefreshCw className="size-5" strokeWidth={2} aria-hidden />}
+                status={compensationStatus}
+                disabled={isAnySubmitting && compensationStatus !== 'submitting'}
+                onClick={() => submitSignal('compensation')}
               />
             </div>
-          )}
-        </div>
 
-        <p className="mt-6 text-center text-[11px] text-[var(--color-text-muted)]">
-          Under 10 seconds. Anonymous.
-        </p>
+            <div className="mt-3 min-h-5">
+              {submitError ? (
+                <p
+                  role="alert"
+                  className="text-center text-[12px] font-medium text-[var(--color-danger)]"
+                >
+                  {submitError}
+                </p>
+              ) : null}
+            </div>
 
-        <div className="mt-10 flex items-center justify-center gap-2 text-[11px] text-[var(--color-text-muted)]">
-          <span>Works on any device</span>
-          <span aria-hidden>·</span>
-          <span>Anonymous</span>
-          <span aria-hidden>·</span>
-          <span>Clinical-grade</span>
+            <div className="mt-5 rounded-[var(--radius-lg)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-raised)]">
+              <button
+                type="button"
+                onClick={() => setShowContext((v) => !v)}
+                aria-expanded={showContext}
+                aria-controls="optional-note-panel"
+                className="flex w-full items-center justify-between gap-3 rounded-[var(--radius-lg)] px-4 py-3 text-left text-[13px] outline-none transition-colors hover:bg-[var(--color-bg-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2"
+              >
+                <span className="flex flex-col">
+                  <span className="font-medium text-[var(--color-text-primary)]">Add a note</span>
+                  <span className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
+                    {note.trim()
+                      ? 'Note will be attached to your next tap.'
+                      : 'Optional — short context, no patient details.'}
+                  </span>
+                </span>
+                {showContext ? (
+                  <ChevronUp
+                    className="size-4 shrink-0 text-[var(--color-text-muted)]"
+                    aria-hidden
+                  />
+                ) : (
+                  <ChevronDown
+                    className="size-4 shrink-0 text-[var(--color-text-muted)]"
+                    aria-hidden
+                  />
+                )}
+              </button>
+
+              {showContext && (
+                <div
+                  id="optional-note-panel"
+                  className="panel-expand space-y-2 border-t-[0.5px] border-[var(--color-border-soft)] px-4 py-4"
+                >
+                  <label
+                    htmlFor="note"
+                    className="block text-[12px] font-medium text-[var(--color-text-secondary)]"
+                  >
+                    Quick note
+                  </label>
+                  <TextArea
+                    id="note"
+                    rows={3}
+                    maxLength={500}
+                    placeholder="What happened? No patient details."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <p className="mt-6 text-center text-[11px] text-[var(--color-text-muted)]">
+              Under 10 seconds. Anonymous.
+            </p>
+
+            <div className="mt-10 flex items-center justify-center gap-2 text-[11px] text-[var(--color-text-muted)]">
+              <span>Works on any device</span>
+              <span aria-hidden>·</span>
+              <span>Anonymous</span>
+              <span aria-hidden>·</span>
+              <span>Clinical-grade</span>
+            </div>
+          </div>
         </div>
       </main>
+
+      <ConfirmChangeSeatModal
+        open={confirmChangeOpen}
+        pendingCount={pendingCount}
+        onCancel={() => setConfirmChangeOpen(false)}
+        onConfirm={() => {
+          setConfirmChangeOpen(false)
+          clearSeat()
+        }}
+      />
+    </div>
+  )
+}
+
+function ConfirmChangeSeatModal({
+  open,
+  pendingCount,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean
+  pendingCount: number
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  if (!open) return null
+
+  const hasPending = pendingCount > 0
+  const description = hasPending
+    ? `You'll need to re-enter a code to keep capturing. You currently have ${pendingCount} pending ${pendingCount === 1 ? 'capture' : 'captures'} that will sync when you're back online.`
+    : "You'll need to re-enter a code to keep capturing."
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4 fade-in">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-seat-title"
+        className="w-full max-w-[420px] rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] p-5 shadow-[var(--shadow-token-lg)]"
+      >
+        <h2 id="change-seat-title" className="text-[16px] font-semibold text-[var(--color-text-primary)]">
+          Change unit & shift?
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
+          {description}
+        </p>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="filled" size="sm" onClick={onConfirm}>
+            Change
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -499,9 +574,9 @@ function CaptureCard({ tone, title, subtitle, icon, status, disabled, onClick }:
       aria-label={`Log ${title.toLowerCase()}`}
       aria-live={isSuccess ? 'polite' : undefined}
       className={cn(
-        'relative w-full overflow-hidden rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] border-l-[3px] text-left transition-all duration-[120ms] ease-out outline-none',
+        'group relative w-full overflow-hidden rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] border-l-[3px] text-left transition-all duration-[120ms] ease-out outline-none',
         'shadow-[var(--shadow-token-sm)]',
-        'hover:shadow-[var(--shadow-token-md)] hover:scale-[1.005]',
+        'hover:shadow-[var(--shadow-token-md)] hover:scale-[1.01] hover:border-[var(--color-border-strong)]',
         'active:scale-[0.997] active:shadow-[var(--shadow-token-sm)] active:duration-[80ms]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2',
         borderColor,
@@ -514,7 +589,7 @@ function CaptureCard({ tone, title, subtitle, icon, status, disabled, onClick }:
         <div className="flex items-center gap-4 px-6 py-5">
           <span
             className={cn(
-              'flex size-10 shrink-0 items-center justify-center rounded-full text-white shadow-[0_1px_3px_rgba(0,0,0,0.12)]',
+              'flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5',
               iconBg
             )}
           >

@@ -47,7 +47,7 @@ export function SeatsAdmin() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   /** Create form state */
-  const [formUnit, setFormUnit] = useState('icu')
+  const [formUnit, setFormUnit] = useState('')
   const [formShift, setFormShift] = useState('day')
   const [formNotes, setFormNotes] = useState('')
   const [creating, setCreating] = useState(false)
@@ -84,6 +84,7 @@ export function SeatsAdmin() {
     setCreating(true)
     setFormError(null)
     try {
+      if (!formUnit) throw new Error('Select a unit.')
       const data = await fetchJsonOrThrow<{ ok: boolean; seat: SeatRow }>(
         authFetch,
         '/admin/seats',
@@ -100,6 +101,7 @@ export function SeatsAdmin() {
       )
       setSeats((prev) => [data.seat, ...prev])
       setHighlightId(data.seat.id)
+      setFormUnit('')
       setFormNotes('')
       window.setTimeout(() => setHighlightId(null), 2400)
     } catch (err) {
@@ -222,6 +224,7 @@ export function SeatsAdmin() {
                 value={formUnit}
                 onChange={setFormUnit}
                 options={UNIT_OPTIONS}
+                placeholder="Select unit"
                 ariaLabel="Unit"
               />
             </div>
@@ -239,7 +242,7 @@ export function SeatsAdmin() {
                 type="submit"
                 variant="filled"
                 size="md"
-                disabled={creating}
+                disabled={creating || !formUnit}
                 className="w-full sm:w-auto"
               >
                 {creating ? 'Creating…' : 'Create seat'}
@@ -411,7 +414,12 @@ function SeatRowItem({
             Activate
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={onDelete}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDelete}
+          className="text-[var(--color-text-muted)] hover:bg-[var(--color-danger-tint)] hover:text-[var(--color-danger)]"
+        >
           <Trash2 className="mr-1.5 size-3.5" strokeWidth={1.75} aria-hidden />
           Delete
         </Button>
