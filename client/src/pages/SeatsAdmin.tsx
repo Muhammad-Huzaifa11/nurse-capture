@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff, ShieldCheck } from 'lucide-react'
+import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
 import { Button, Card, Eyebrow, Pill, Select, TextArea } from '@/components/system/primitives'
 import { useAuth } from '@/auth/AuthContext'
@@ -31,6 +31,13 @@ type SeatRow = {
   createdAt: string | null
 }
 
+type ConfirmAction = 'rotate' | 'toggle' | 'delete'
+
+type ConfirmState = {
+  action: ConfirmAction
+  seat: SeatRow
+}
+
 export function SeatsAdmin() {
   const { authFetch } = useAuth()
   const [seats, setSeats] = useState<SeatRow[]>([])
@@ -45,6 +52,8 @@ export function SeatsAdmin() {
   const [creating, setCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
 
   const loadSeats = useCallback(async () => {
     setLoading(true)
@@ -115,12 +124,6 @@ export function SeatsAdmin() {
   }
 
   async function handleRotate(seat: SeatRow) {
-    if (
-      !window.confirm(
-        `Rotate the code for "${seat.label}"? Existing devices stay signed in. New devices must use the new code.`
-      )
-    )
-      return
     try {
       const res = await authFetch(`/admin/seats/${seat.id}/rotate-code`, {
         method: 'POST',
@@ -134,6 +137,19 @@ export function SeatsAdmin() {
       window.setTimeout(() => setHighlightId(null), 2400)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not rotate code.')
+    }
+  }
+
+  async function handleDelete(seat: SeatRow) {
+    try {
+      const res = await authFetch(`/admin/seats/${seat.id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || 'Could not delete seat.')
+      }
+      setSeats((prev) => prev.filter((s) => s.id !== seat.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete seat.')
     }
   }
 
@@ -153,6 +169,23 @@ export function SeatsAdmin() {
       return (b.createdAt || '').localeCompare(a.createdAt || '')
     })
   }, [seats])
+
+  async function handleConfirmAction() {
+    if (!confirmState || confirmBusy) return
+    setConfirmBusy(true)
+    try {
+      if (confirmState.action === 'rotate') {
+        await handleRotate(confirmState.seat)
+      } else if (confirmState.action === 'toggle') {
+        await handleToggleActive(confirmState.seat)
+      } else {
+        await handleDelete(confirmState.seat)
+      }
+      setConfirmState(null)
+    } finally {
+      setConfirmBusy(false)
+    }
+  }
 
   return (
     <div className="min-h-svh bg-[var(--color-bg-base)]">
@@ -270,8 +303,9 @@ export function SeatsAdmin() {
                   copied={copiedId === seat.id}
                   highlight={highlightId === seat.id}
                   onCopy={() => handleCopy(seat)}
-                  onRotate={() => handleRotate(seat)}
-                  onToggleActive={() => handleToggleActive(seat)}
+                  onRotate={() => setConfirmState({ action: 'rotate', seat })}
+                  onToggleActive={() => setConfirmState({ action: 'toggle', seat })}
+                  onDelete={() => setConfirmState({ action: 'delete', seat })}
                 />
               ))}
             </div>
@@ -282,6 +316,13 @@ export function SeatsAdmin() {
           Seats are anonymous. The dashboard shows unit + shift only, never who tapped.
         </p>
       </main>
+
+      <ConfirmActionModal
+        state={confirmState}
+        busy={confirmBusy}
+        onCancel={() => !confirmBusy && setConfirmState(null)}
+        onConfirm={handleConfirmAction}
+      />
     </div>
   )
 }
@@ -293,6 +334,7 @@ function SeatRowItem({
   onCopy,
   onRotate,
   onToggleActive,
+  onDelete,
 }: {
   seat: SeatRow
   copied: boolean
@@ -300,6 +342,7 @@ function SeatRowItem({
   onCopy: () => void
   onRotate: () => void
   onToggleActive: () => void
+  onDelete: () => void
 }) {
   return (
     <div
@@ -364,6 +407,88 @@ function SeatRowItem({
             Activate
           </Button>
         )}
+        <Button variant="ghost" size="sm" onClick={onDelete}>
+          <Trash2 className="mr-1.5 size-3.5" strokeWidth={1.75} aria-hidden />
+          Delete
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ConfirmActionModal({
+  state,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  state: ConfirmState | null
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  if (!state) return null
+
+  const { seat, action } = state
+  const isRotate = action === 'rotate'
+  const isDelete = action === 'delete'
+  const isToggle = action === 'toggle'
+  const willDeactivate = isToggle && seat.isActive
+
+  const title = isRotate
+    ? 'Rotate seat code?'
+    : isDelete
+      ? 'Delete this seat?'
+      : willDeactivate
+        ? 'Deactivate this seat?'
+        : 'Activate this seat?'
+
+  const description = isRotate
+    ? `Rotate the code for "${seat.label}"? Existing devices stay signed in, but new devices must use the new code.`
+    : isDelete
+      ? `Delete "${seat.label}" permanently? Any active sessions for this seat will be ended immediately.`
+      : willDeactivate
+        ? `Deactivate "${seat.label}"? Active sessions will be ended immediately.`
+        : `Activate "${seat.label}" so nurses can redeem this code again.`
+
+  const confirmLabel = isRotate
+    ? 'Rotate code'
+    : isDelete
+      ? 'Delete seat'
+      : willDeactivate
+        ? 'Deactivate seat'
+        : 'Activate seat'
+
+  const confirmVariant = isDelete || willDeactivate ? 'danger' : 'filled'
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4 fade-in">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="seat-confirm-title"
+        className="w-full max-w-[420px] rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] p-5 shadow-[var(--shadow-token-lg)]"
+      >
+        <h2 id="seat-confirm-title" className="text-[16px] font-semibold text-[var(--color-text-primary)]">
+          {title}
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
+          {description}
+        </p>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant={confirmVariant}
+            size="sm"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? 'Working…' : confirmLabel}
+          </Button>
+        </div>
       </div>
     </div>
   )

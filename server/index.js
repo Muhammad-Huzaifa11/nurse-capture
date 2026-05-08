@@ -390,6 +390,20 @@ app.post('/admin/seats/:id/rotate-code', requireAdmin, async (req, res, next) =>
   }
 });
 
+app.delete('/admin/seats/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    if (!mongoose.isValidObjectId(id)) throw badRequest('Invalid seat id.');
+
+    const seat = await Seat.findByIdAndDelete(id).lean();
+    if (!seat) throw notFound('Seat not found.');
+
+    return res.json({ ok: true, id });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 function serializeSeat(s) {
   return {
     id: s._id.toString(),
