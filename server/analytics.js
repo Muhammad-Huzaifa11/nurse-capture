@@ -3,10 +3,8 @@ const { Event } = require('./models/event');
 /** Dashboard unit filter → Mongo query on unitKey */
 function unitFilterQuery(unit) {
   if (!unit || unit === 'all') return {};
-  if (unit === 'nicu') return { unitKey: { $in: ['nicu-a', 'nicu-b'] } };
-  if (unit === 'icu') return { unitKey: 'stepdown' };
-  if (unit === 'ed') return { unitKey: 'other' };
-  return {};
+  if (unit === 'icu') return { unitKey: { $in: ['icu', 'nicu-a', 'nicu-b'] } };
+  return { unitKey: unit };
 }
 
 function rangeToDays(range) {
@@ -14,6 +12,38 @@ function rangeToDays(range) {
   if (range === '30d') return 30;
   if (range === '90d') return 90;
   return null;
+}
+
+function parseIsoDate(value, fieldName) {
+  if (!value || typeof value !== 'string') throw badRequest(`${fieldName} must be an ISO date string.`);
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) throw badRequest(`${fieldName} must be a valid ISO date string.`);
+  return d;
+}
+
+function startOfCurrentMonthUtc(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+function resolveTimeWindow(query) {
+  const now = new Date();
+  const end = query.end ? parseIsoDate(query.end, 'end') : now;
+  if (query.start || query.end) {
+    const start = parseIsoDate(query.start, 'start');
+    if (start > end) throw badRequest('start must be before end.');
+    return { start, end, windowLabel: 'custom' };
+  }
+
+  const preset = query.preset;
+  if (preset === 'this-month') {
+    return { start: startOfCurrentMonthUtc(now), end, windowLabel: 'this-month' };
+  }
+
+  const range = query.range || '7d';
+  const days = rangeToDays(range);
+  if (days === null) throw badRequest('range must be 7d, 30d, or 90d.');
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+  return { start, end, windowLabel: range };
 }
 
 function badRequest(message) {
@@ -51,17 +81,12 @@ async function countSignals(matchExtra, start, end, signalType) {
  */
 async function getSummary(req, res, next) {
   try {
-    const range = req.query.range || '7d';
     const unit = req.query.unit || 'all';
-    const days = rangeToDays(range);
-    if (days === null) throw badRequest('range must be 7d, 30d, or 90d.');
-
+    const { start, end, windowLabel } = resolveTimeWindow(req.query);
     const unitQ = unitFilterQuery(unit);
-    const now = new Date();
-    const end = now;
-    const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const windowMs = end.getTime() - start.getTime();
     const priorEnd = start;
-    const priorStart = new Date(start.getTime() - days * 24 * 60 * 60 * 1000);
+    const priorStart = new Date(start.getTime() - windowMs);
 
     const [total, interruptions, compensations, priorTotal] = await Promise.all([
       Event.countDocuments({ ...unitQ, ...matchTimeRange(start, end) }),
@@ -82,8 +107,10 @@ async function getSummary(req, res, next) {
 
     return res.json({
       ok: true,
-      range,
+      range: windowLabel,
       unit,
+      start: start.toISOString(),
+      end: end.toISOString(),
       current: {
         total,
         interruptions,
@@ -124,19 +151,14 @@ function formatMonthLabel(isoMonth) {
  */
 async function getTimeseries(req, res, next) {
   try {
-    const range = req.query.range || '7d';
     const granularity = req.query.granularity || 'day';
     const unit = req.query.unit || 'all';
-    const days = rangeToDays(range);
-    if (days === null) throw badRequest('range must be 7d, 30d, or 90d.');
+    const { start, end, windowLabel } = resolveTimeWindow(req.query);
     if (!['day', 'week', 'month'].includes(granularity)) {
       throw badRequest('granularity must be day, week, or month.');
     }
 
     const unitQ = unitFilterQuery(unit);
-    const now = new Date();
-    const end = now;
-    const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
     const match = { ...unitQ, ...matchTimeRange(start, end) };
 
@@ -248,8 +270,10 @@ async function getTimeseries(req, res, next) {
     return res.json({
       ok: true,
       granularity,
-      range,
+      range: windowLabel,
       unit,
+      start: start.toISOString(),
+      end: end.toISOString(),
       points: points.map((p) => ({
         label: p.label,
         interruptions: p.interruptions,
@@ -266,15 +290,9 @@ async function getTimeseries(req, res, next) {
  */
 async function getByShift(req, res, next) {
   try {
-    const range = req.query.range || '7d';
     const unit = req.query.unit || 'all';
-    const days = rangeToDays(range);
-    if (days === null) throw badRequest('range must be 7d, 30d, or 90d.');
-
+    const { start, end, windowLabel } = resolveTimeWindow(req.query);
     const unitQ = unitFilterQuery(unit);
-    const now = new Date();
-    const end = now;
-    const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
     const match = {
       ...unitQ,
@@ -323,7 +341,242 @@ async function getByShift(req, res, next) {
       };
     });
 
-    return res.json({ ok: true, range, unit, shifts });
+    return res.json({
+      ok: true,
+      range: windowLabel,
+      unit,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      shifts,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * GET /analytics/by-unit?range=7d
+ */
+async function getByUnit(req, res, next) {
+  try {
+    const unit = req.query.unit || 'all';
+    const { start, end, windowLabel } = resolveTimeWindow(req.query);
+    const unitQ = unitFilterQuery(unit);
+
+    const normalizedUnitExpr = {
+      $switch: {
+        branches: [
+          { case: { $in: ['$unitKey', ['icu', 'nicu-a', 'nicu-b']] }, then: 'icu' },
+          { case: { $eq: ['$unitKey', 'med-surg'] }, then: 'med-surg' },
+          { case: { $eq: ['$unitKey', 'ed'] }, then: 'ed' },
+          { case: { $eq: ['$unitKey', 'stepdown'] }, then: 'stepdown' },
+          { case: { $eq: ['$unitKey', 'other'] }, then: 'other' },
+        ],
+        default: 'other',
+      },
+    };
+
+    const rows = await Event.aggregate([
+      { $match: { ...unitQ, ...matchTimeRange(start, end) } },
+      {
+        $project: {
+          unitKeyNormalized: normalizedUnitExpr,
+        },
+      },
+      {
+        $group: {
+          _id: '$unitKeyNormalized',
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 5 },
+    ]);
+
+    const unitLabelMap = {
+      icu: 'ICU',
+      'med-surg': 'Med surg',
+      ed: 'ED',
+      stepdown: 'Stepdown',
+      other: 'Other',
+    };
+
+    const units = rows.map((row) => ({
+      key: row._id,
+      label: unitLabelMap[row._id] ?? row._id,
+      count: row.count,
+    }));
+
+    return res.json({
+      ok: true,
+      range: windowLabel,
+      unit,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      units,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function unitLabel(unitKey) {
+  const map = {
+    icu: 'ICU',
+    'med-surg': 'Med surg',
+    ed: 'ED',
+    stepdown: 'Stepdown',
+    other: 'Other',
+    'nicu-a': 'ICU',
+    'nicu-b': 'ICU',
+  };
+  return map[unitKey] || unitKey || 'Unknown';
+}
+
+function shiftLabel(shift) {
+  const map = { day: 'Day', evening: 'Evening', night: 'Night' };
+  return map[shift] || shift || 'Unknown';
+}
+
+async function getRatioTrend(req, res, next) {
+  try {
+    req.query.granularity = req.query.granularity || 'day';
+    const unit = req.query.unit || 'all';
+    const granularity = req.query.granularity;
+    const { start, end, windowLabel } = resolveTimeWindow(req.query);
+    const unitQ = unitFilterQuery(unit);
+
+    const groupId =
+      granularity === 'day'
+        ? { $dateToString: { format: '%Y-%m-%d', date: timestampExpr(), timezone: 'UTC' } }
+        : granularity === 'week'
+          ? {
+              year: { $isoWeekYear: { date: timestampExpr(), timezone: 'UTC' } },
+              week: { $isoWeek: { date: timestampExpr(), timezone: 'UTC' } },
+            }
+          : { $dateToString: { format: '%Y-%m', date: timestampExpr(), timezone: 'UTC' } };
+
+    const sortStage =
+      granularity === 'week' ? { $sort: { '_id.year': 1, '_id.week': 1 } } : { $sort: { _id: 1 } };
+
+    const rows = await Event.aggregate([
+      { $match: { ...unitQ, ...matchTimeRange(start, end) } },
+      {
+        $group: {
+          _id: groupId,
+          interruptions: { $sum: { $cond: [{ $eq: ['$signalType', 'interruption'] }, 1, 0] } },
+          compensations: { $sum: { $cond: [{ $eq: ['$signalType', 'compensation'] }, 1, 0] } },
+        },
+      },
+      sortStage,
+    ]);
+
+    const points = rows.map((row) => {
+      let label = '';
+      if (granularity === 'day') {
+        const [y, mo, da] = row._id.split('-').map(Number);
+        label = new Date(Date.UTC(y, mo - 1, da)).toLocaleDateString('en-US', {
+          weekday: 'short',
+          timeZone: 'UTC',
+        });
+      } else if (granularity === 'week') label = `W${row._id.week}`;
+      else label = formatMonthLabel(row._id);
+      const ratio = row.interruptions > 0 ? Number((row.compensations / row.interruptions).toFixed(2)) : 0;
+      return { label, interruptions: row.interruptions, compensations: row.compensations, ratio };
+    });
+
+    return res.json({
+      ok: true,
+      granularity,
+      range: windowLabel,
+      unit,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      points,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getActivityFeed(req, res, next) {
+  try {
+    const unit = req.query.unit || 'all';
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 25)));
+    const { start, end, windowLabel } = resolveTimeWindow(req.query);
+    const unitQ = unitFilterQuery(unit);
+
+    const [items, total] = await Promise.all([
+      Event.find({ ...unitQ, ...matchTimeRange(start, end) })
+        .sort({ receivedAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+      Event.countDocuments({ ...unitQ, ...matchTimeRange(start, end) }),
+    ]);
+
+    const rows = items.map((e) => {
+      const when = e.occurredAt || e.receivedAt;
+      return {
+        id: e._id.toString(),
+        timestamp: when ? new Date(when).toISOString() : null,
+        signalType: e.signalType,
+        unit: unitLabel(e.unitKey),
+        shift: shiftLabel(e.shift),
+        noteSnippet: e.note ? String(e.note).slice(0, 80) : '',
+        seatLabel: e.unitKey && e.shift ? `${unitLabel(e.unitKey)} · ${shiftLabel(e.shift)}` : null,
+      };
+    });
+
+    return res.json({
+      ok: true,
+      range: windowLabel,
+      unit,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      page,
+      pageSize,
+      total,
+      items: rows,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function csvEscape(value) {
+  const raw = value == null ? '' : String(value);
+  if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+  return raw;
+}
+
+async function exportSignalsCsv(req, res, next) {
+  try {
+    const unit = req.query.unit || 'all';
+    const { start, end } = resolveTimeWindow(req.query);
+    const unitQ = unitFilterQuery(unit);
+    const events = await Event.find({ ...unitQ, ...matchTimeRange(start, end) })
+      .sort({ receivedAt: -1 })
+      .lean();
+
+    const header = ['timestamp', 'signalType', 'unit', 'shift', 'note', 'seatLabel'];
+    const lines = [header.join(',')];
+    for (const e of events) {
+      const ts = e.occurredAt || e.receivedAt;
+      const row = [
+        ts ? new Date(ts).toISOString() : '',
+        e.signalType || '',
+        unitLabel(e.unitKey),
+        shiftLabel(e.shift),
+        e.note || '',
+        e.unitKey && e.shift ? `${unitLabel(e.unitKey)} · ${shiftLabel(e.shift)}` : '',
+      ].map(csvEscape);
+      lines.push(row.join(','));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="signals-export.csv"');
+    return res.status(200).send(lines.join('\n'));
   } catch (err) {
     return next(err);
   }
@@ -333,6 +586,10 @@ module.exports = {
   getSummary,
   getTimeseries,
   getByShift,
+  getByUnit,
+  getRatioTrend,
+  getActivityFeed,
+  exportSignalsCsv,
   unitFilterQuery,
   rangeToDays,
 };

@@ -3,6 +3,7 @@ import { Dashboard } from '@/pages/Dashboard'
 import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { QuickCapture } from '@/pages/QuickCapture'
+import { SeatsAdmin } from '@/pages/SeatsAdmin'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 
 export default function App() {
@@ -16,6 +17,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/seats"
+        element={
+          <ProtectedRoute>
+            <SeatsAdmin />
           </ProtectedRoute>
         }
       />

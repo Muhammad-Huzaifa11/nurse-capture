@@ -3,12 +3,123 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      /** Auto-register the service worker; Workbox-generated. */
+      registerType: 'autoUpdate',
+      injectRegister: 'auto',
+      includeAssets: [
+        'favicon.svg',
+        'favicon.ico',
+        'apple-touch-icon-180x180.png',
+        'pwa-source.svg',
+      ],
+      manifest: {
+        name: 'Invisible Workload',
+        short_name: 'Capture',
+        description:
+          'One-tap capture of workflow interruptions and compensations. Anonymous, fast, offline-friendly.',
+        theme_color: '#5b52d6',
+        background_color: '#ffffff',
+        display: 'standalone',
+        orientation: 'portrait',
+        start_url: '/capture',
+        scope: '/',
+        lang: 'en',
+        categories: ['health', 'productivity', 'medical'],
+        icons: [
+          {
+            src: 'pwa-64x64.png',
+            sizes: '64x64',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+          {
+            src: 'maskable-icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        /** Precache the entire app shell so the page boots offline. */
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,woff2}'],
+        /** Don't try to satisfy /api/* from cache — see runtimeCaching below. */
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        runtimeCaching: [
+          /**
+           * POST /api/events: queue failed requests via Background Sync.
+           * On reconnect the SW retries automatically (Workbox handles this).
+           * Queue lives 24h; events older than that get dropped (acceptable
+           * for a workflow signal that's already stale).
+           */
+          {
+            urlPattern: ({ url, request }) =>
+              request.method === 'POST' && url.pathname === '/api/events',
+            handler: 'NetworkOnly',
+            method: 'POST',
+            options: {
+              backgroundSync: {
+                name: 'events-queue',
+                options: {
+                  maxRetentionTime: 24 * 60, // minutes
+                },
+              },
+            },
+          },
+          /**
+           * Auth and analytics: always go to the network. We don't want stale
+           * dashboards or cached auth answers.
+           */
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+            handler: 'NetworkOnly',
+          },
+          /** Google Fonts (woff2 etc) — long-cache as immutable assets. */
+          {
+            urlPattern: ({ url }) =>
+              url.origin === 'https://fonts.gstatic.com' || url.origin === 'https://fonts.googleapis.com',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts',
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
+      devOptions: {
+        /** Enable the SW in `vite dev` so we can test offline behavior locally. */
+        enabled: false,
+        type: 'module',
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

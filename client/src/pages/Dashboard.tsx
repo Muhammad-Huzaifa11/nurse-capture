@@ -5,24 +5,29 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
-import { Inbox } from 'lucide-react'
+import { Download, Inbox } from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
 import {
+  Button,
   Card,
   IntensityDot,
   Pill,
   Select,
   Eyebrow,
+  TextField,
 } from '@/components/system/primitives'
 import { useAuth } from '@/auth/AuthContext'
 import { cn } from '@/lib/utils'
 
 type TimeGranularity = 'day' | 'week' | 'month'
+type DatePreset = '7d' | '30d' | 'this-month' | 'custom'
 
 type SummaryPayload = {
   ok: boolean
@@ -51,38 +56,53 @@ type ShiftRowApi = {
   compensationIntensity: number
 }
 
-const RANGE_OPTIONS = [
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-]
-const UNIT_OPTIONS = [
-  { value: 'all', label: 'All units' },
-  { value: 'nicu', label: 'NICU' },
-  { value: 'icu', label: 'ICU' },
-  { value: 'ed', label: 'ED' },
-]
+type UnitRowApi = {
+  key: string
+  label: string
+  count: number
+}
+
+type RatioPoint = {
+  label: string
+  interruptions: number
+  compensations: number
+  ratio: number
+}
+
+type FeedItem = {
+  id: string
+  timestamp: string | null
+  signalType: string
+  unit: string
+  shift: string
+  noteSnippet: string
+  seatLabel: string | null
+}
+
 const GRANULARITY_OPTIONS = [
   { value: 'day', label: 'Daily' },
   { value: 'week', label: 'Weekly' },
   { value: 'month', label: 'Monthly' },
 ]
-
-const CATEGORIES: { label: string; pct: number; tone: 'purple' | 'teal' }[] = [
-  { label: 'Admissions / transitions', pct: 28, tone: 'purple' },
-  { label: 'Documentation / EHR', pct: 22, tone: 'purple' },
-  { label: 'Communications', pct: 18, tone: 'purple' },
-  { label: 'Discharge planning', pct: 12, tone: 'teal' },
-  { label: 'Other', pct: 20, tone: 'teal' },
+const DATE_PRESET_OPTIONS = [
+  { value: '7d', label: 'Last 7 days' },
+  { value: '30d', label: 'Last 30 days' },
+  { value: 'this-month', label: 'This month' },
+  { value: 'custom', label: 'Custom range' },
 ]
 
-const UNITS: { name: string; count: number }[] = [
-  { name: 'ICU', count: 1234 },
-  { name: 'Med surg', count: 987 },
-  { name: 'ED', count: 678 },
-  { name: 'Stepdown', count: 456 },
-  { name: 'Other', count: 487 },
+const UNIT_OPTIONS = [
+  { value: 'all', label: 'All units' },
+  { value: 'icu', label: 'ICU' },
+  { value: 'med-surg', label: 'Med surg' },
+  { value: 'ed', label: 'ED' },
+  { value: 'stepdown', label: 'Stepdown' },
+  { value: 'other', label: 'Other' },
 ]
+
+function unitLabelForFilter(value: string): string {
+  return UNIT_OPTIONS.find((opt) => opt.value === value)?.label ?? 'Selected unit'
+}
 
 function shiftIntensity(total: number): 'low' | 'medium' | 'high' {
   if (total >= 30) return 'high'
@@ -95,19 +115,48 @@ function formatNumber(n: number) {
   return n.toLocaleString()
 }
 
+function granularitySubtitle(granularity: TimeGranularity) {
+  if (granularity === 'week') return 'Weekly counts'
+  if (granularity === 'month') return 'Monthly counts'
+  return 'Daily counts'
+}
+
 export function Dashboard() {
   const { authFetch, isAuthReady, token, isAuthenticated } = useAuth()
-  const [range, setRange] = useState('7d')
   const [unitFilter, setUnitFilter] = useState('all')
   const [granularity, setGranularity] = useState<TimeGranularity>('day')
+  const [datePreset, setDatePreset] = useState<DatePreset>('7d')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
 
   const [summary, setSummary] = useState<
     (SummaryPayload['current'] & { deltaLabel: string; deltaPct: number }) | null
   >(null)
   const [trendPoints, setTrendPoints] = useState<TimeseriesPoint[]>([])
+  const [ratioPoints, setRatioPoints] = useState<RatioPoint[]>([])
   const [shiftRows, setShiftRows] = useState<ShiftRowApi[]>([])
+  const [unitRows, setUnitRows] = useState<UnitRowApi[]>([])
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([])
+  const [feedTotal, setFeedTotal] = useState(0)
+  const [feedPage, setFeedPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const buildTimeParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (datePreset === 'custom') {
+      if (!customStart || !customEnd) {
+        throw new Error('Select both start and end dates for a custom range.')
+      }
+      params.set('start', new Date(`${customStart}T00:00:00.000Z`).toISOString())
+      params.set('end', new Date(`${customEnd}T23:59:59.999Z`).toISOString())
+    } else if (datePreset === 'this-month') {
+      params.set('preset', 'this-month')
+    } else {
+      params.set('range', datePreset)
+    }
+    return params
+  }, [datePreset, customStart, customEnd])
 
   const loadData = useCallback(async () => {
     if (!isAuthReady || !isAuthenticated || !token) return
@@ -115,28 +164,36 @@ export function Dashboard() {
     setLoading(true)
     setError(null)
     try {
-      const q = (path: string) =>
-        authFetch(
-          `${path}?range=${encodeURIComponent(range)}&unit=${encodeURIComponent(unitFilter)}`
-        )
-      const qTs = () =>
-        authFetch(
-          `/analytics/timeseries?range=${encodeURIComponent(range)}&unit=${encodeURIComponent(unitFilter)}&granularity=${encodeURIComponent(granularity)}`
-        )
+      const baseParams = buildTimeParams()
+      baseParams.set('unit', unitFilter)
+      const withGranularity = new URLSearchParams(baseParams)
+      withGranularity.set('granularity', granularity)
+      const feedParams = new URLSearchParams(baseParams)
+      feedParams.set('page', String(feedPage))
+      feedParams.set('pageSize', '20')
 
-      const [sRes, tRes, shRes] = await Promise.all([
-        q('/analytics/summary'),
-        qTs(),
-        q('/analytics/by-shift'),
+      const [sRes, tRes, shRes, uRes, rRes, fRes] = await Promise.all([
+        authFetch(`/analytics/summary?${baseParams.toString()}`),
+        authFetch(`/analytics/timeseries?${withGranularity.toString()}`),
+        authFetch(`/analytics/by-shift?${baseParams.toString()}`),
+        authFetch(`/analytics/by-unit?${baseParams.toString()}`),
+        authFetch(`/analytics/ratio-trend?${withGranularity.toString()}`),
+        authFetch(`/analytics/activity-feed?${feedParams.toString()}`),
       ])
 
       if (!sRes.ok) throw new Error((await sRes.json().catch(() => ({}))).error || 'Could not load summary.')
       if (!tRes.ok) throw new Error((await tRes.json().catch(() => ({}))).error || 'Could not load time series.')
       if (!shRes.ok) throw new Error((await shRes.json().catch(() => ({}))).error || 'Could not load shifts.')
+      if (!uRes.ok) throw new Error((await uRes.json().catch(() => ({}))).error || 'Could not load units.')
+      if (!rRes.ok) throw new Error((await rRes.json().catch(() => ({}))).error || 'Could not load ratio trend.')
+      if (!fRes.ok) throw new Error((await fRes.json().catch(() => ({}))).error || 'Could not load activity feed.')
 
       const sData = (await sRes.json()) as SummaryPayload
       const tData = (await tRes.json()) as { points: TimeseriesPoint[] }
       const shData = (await shRes.json()) as { shifts: ShiftRowApi[] }
+      const uData = (await uRes.json()) as { units: UnitRowApi[] }
+      const rData = (await rRes.json()) as { points: RatioPoint[] }
+      const fData = (await fRes.json()) as { items: FeedItem[]; total: number }
 
       setSummary({
         ...sData.current,
@@ -144,16 +201,24 @@ export function Dashboard() {
         deltaPct: sData.deltaPct,
       })
       setTrendPoints(tData.points ?? [])
+      setRatioPoints(rData.points ?? [])
       setShiftRows(shData.shifts ?? [])
+      setUnitRows(uData.units ?? [])
+      setFeedItems(fData.items ?? [])
+      setFeedTotal(fData.total ?? 0)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.')
       setSummary(null)
       setTrendPoints([])
+      setRatioPoints([])
       setShiftRows([])
+      setUnitRows([])
+      setFeedItems([])
+      setFeedTotal(0)
     } finally {
       setLoading(false)
     }
-  }, [authFetch, isAuthReady, isAuthenticated, token, range, unitFilter, granularity])
+  }, [authFetch, isAuthReady, isAuthenticated, token, unitFilter, granularity, buildTimeParams, feedPage])
 
   useEffect(() => {
     loadData()
@@ -164,7 +229,7 @@ export function Dashboard() {
     [trendPoints]
   )
 
-  const trendIsSparse = populatedTrendCount < 3
+  const hasTrendData = populatedTrendCount > 0
 
   /**
    * Use a unique numeric x-key per data point so Recharts can disambiguate
@@ -174,6 +239,39 @@ export function Dashboard() {
     () => trendPoints.map((p, idx) => ({ ...p, __idx: idx })),
     [trendPoints]
   )
+  const isAllUnits = unitFilter === 'all'
+  const emptyTrendMessage = isAllUnits
+    ? 'Signals will appear here as your team captures events'
+    : `No signals for ${unitLabelForFilter(unitFilter)} yet`
+  const emptyActivityMessage = isAllUnits
+    ? 'Activity will populate as captures accumulate'
+    : `No activity for ${unitLabelForFilter(unitFilter)} yet`
+  const totalFeedPages = Math.max(1, Math.ceil(feedTotal / 20))
+
+  useEffect(() => {
+    setFeedPage(1)
+  }, [unitFilter, granularity, datePreset, customStart, customEnd])
+
+  const handleExportCsv = useCallback(async () => {
+    try {
+      const params = buildTimeParams()
+      params.set('unit', unitFilter)
+      const res = await authFetch(`/analytics/export.csv?${params.toString()}`)
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        throw new Error(payload.error || 'Could not export CSV.')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'signals-export.csv'
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not export CSV.')
+    }
+  }, [authFetch, buildTimeParams, unitFilter])
 
   return (
     <div className="min-h-svh bg-[var(--color-bg-base)]">
@@ -192,13 +290,31 @@ export function Dashboard() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Select
-              value={range}
-              onChange={setRange}
-              options={RANGE_OPTIONS}
-              ariaLabel="Date range"
+              value={datePreset}
+              onChange={(v) => setDatePreset(v as DatePreset)}
+              options={DATE_PRESET_OPTIONS}
+              ariaLabel="Date range preset"
               size="sm"
-              className="min-w-[140px]"
+              className="min-w-[160px]"
             />
+            {datePreset === 'custom' && (
+              <>
+                <TextField
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  aria-label="Custom range start date"
+                  className="h-8 min-w-[150px]"
+                />
+                <TextField
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  aria-label="Custom range end date"
+                  className="h-8 min-w-[150px]"
+                />
+              </>
+            )}
             <Select
               value={unitFilter}
               onChange={setUnitFilter}
@@ -211,10 +327,14 @@ export function Dashboard() {
               value={granularity}
               onChange={(v) => setGranularity(v as TimeGranularity)}
               options={GRANULARITY_OPTIONS}
-              ariaLabel="Trend granularity"
+              ariaLabel="Time view"
               size="sm"
               className="min-w-[110px]"
             />
+            <Button variant="outlined" size="sm" onClick={handleExportCsv}>
+              <Download className="mr-1.5 size-3.5" strokeWidth={1.75} aria-hidden />
+              Export CSV
+            </Button>
           </div>
         </section>
 
@@ -277,7 +397,7 @@ export function Dashboard() {
                   Signal trend
                 </p>
                 <p className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
-                  Daily counts
+                  {granularitySubtitle(granularity)}
                 </p>
               </div>
               <div className="flex items-center gap-3 text-[12px] text-[var(--color-text-muted)]">
@@ -292,8 +412,8 @@ export function Dashboard() {
               </div>
             </div>
             <div className="px-3 pb-4 pt-2 sm:px-5">
-              {trendIsSparse && !loading ? (
-                <EmptyChart message="Signals will appear here as your team captures events" />
+              {!hasTrendData && !loading ? (
+                <EmptyChart message={emptyTrendMessage} />
               ) : (
                 <div className="h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -367,8 +487,8 @@ export function Dashboard() {
               </div>
             </div>
             <div className="px-3 pb-4 pt-2 sm:px-5">
-              {trendIsSparse && !loading ? (
-                <EmptyChart message="Activity will populate as captures accumulate" />
+              {!hasTrendData && !loading ? (
+                <EmptyChart message={emptyActivityMessage} />
               ) : (
                 <div className="h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -436,44 +556,66 @@ export function Dashboard() {
           </Card>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Top categories */}
+        <section>
           <Card raised>
-            <div className="px-5 pt-4">
-              <p className="text-[13px] font-medium text-[var(--color-text-primary)]">
-                Top categories
-              </p>
+            <div className="flex items-start justify-between gap-3 px-5 pt-4">
+              <div>
+                <p className="text-[13px] font-medium text-[var(--color-text-primary)]">
+                  Compensation ratio trend
+                </p>
+                <p className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
+                  Compensations divided by interruptions by period
+                </p>
+              </div>
+              <Pill tone="brand">Early burnout signal</Pill>
             </div>
-            <div className="space-y-3.5 px-5 py-4">
-              {CATEGORIES.map((c) => (
-                <div
-                  key={c.label}
-                  className="group cursor-pointer rounded-[var(--radius-sm)] -mx-2 px-2 py-1 transition-colors hover:bg-[var(--color-bg-raised)]"
-                >
-                  <div className="flex items-baseline justify-between gap-3 text-[13px]">
-                    <span className="truncate font-medium text-[var(--color-text-primary)]">
-                      {c.label}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-[var(--color-text-muted)]">
-                      {c.pct}%
-                    </span>
-                  </div>
-                  <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-[var(--color-border-soft)]">
-                    <div
-                      className={cn(
-                        'h-full rounded-full',
-                        c.tone === 'purple'
-                          ? 'bg-[var(--color-brand-purple)]'
-                          : 'bg-[var(--color-brand-teal)]'
-                      )}
-                      style={{ width: `${c.pct}%` }}
-                    />
-                  </div>
+            <div className="px-3 pb-4 pt-2 sm:px-5">
+              {ratioPoints.length === 0 && !loading ? (
+                <EmptyChart message={isAllUnits ? 'Ratio trend will appear as signals accumulate' : `No ratio data for ${unitLabelForFilter(unitFilter)} yet`} />
+              ) : (
+                <div className="h-52 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={ratioPoints} margin={{ top: 12, right: 8, left: 0, bottom: 4 }}>
+                      <CartesianGrid
+                        stroke="var(--color-border-soft)"
+                        strokeOpacity={0.4}
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="label"
+                        stroke="var(--color-text-muted)"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        stroke="var(--color-text-muted)"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        width={32}
+                      />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey="ratio"
+                        name="Compensation ratio"
+                        stroke="var(--color-brand-purple)"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                        isAnimationActive
+                        animationDuration={450}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
-              ))}
+              )}
             </div>
           </Card>
+        </section>
 
+        <div className="grid gap-6 lg:grid-cols-2">
           {/* By shift */}
           <Card raised>
             <div className="px-5 pt-4">
@@ -546,19 +688,19 @@ export function Dashboard() {
           </Card>
 
           {/* By unit */}
-          <Card raised className="lg:col-span-2">
+          <Card raised>
             <div className="px-5 pt-4">
               <p className="text-[13px] font-medium text-[var(--color-text-primary)]">
                 By unit (top 5)
               </p>
             </div>
             <div className="space-y-3.5 px-5 py-4">
-              {UNITS.map((u) => {
-                const max = Math.max(...UNITS.map((x) => x.count))
+              {unitRows.map((u) => {
+                const max = Math.max(...unitRows.map((x) => x.count), 1)
                 return (
-                  <div key={u.name}>
+                  <div key={u.key}>
                     <div className="flex items-baseline justify-between gap-3 text-[13px]">
-                      <span className="font-medium text-[var(--color-text-primary)]">{u.name}</span>
+                      <span className="font-medium text-[var(--color-text-primary)]">{u.label}</span>
                       <span className="tabular-nums text-[var(--color-text-muted)]">
                         {u.count.toLocaleString()}
                       </span>
@@ -572,9 +714,88 @@ export function Dashboard() {
                   </div>
                 )
               })}
+              {unitRows.length === 0 && (
+                <p className="text-[12px] text-[var(--color-text-muted)]">No unit-tagged signals yet.</p>
+              )}
             </div>
           </Card>
         </div>
+
+        <section>
+          <Card raised>
+            <div className="flex items-center justify-between border-b-[0.5px] border-[var(--color-border-soft)] px-5 py-3">
+              <p className="text-[13px] font-medium text-[var(--color-text-primary)]">
+                Activity feed
+                <span className="ml-1.5 text-[12px] font-normal text-[var(--color-text-muted)]">
+                  ({feedTotal.toLocaleString()})
+                </span>
+              </p>
+            </div>
+            <div className="px-5 py-4">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px]">
+                  <thead>
+                    <tr>
+                      <th className="pb-2 text-left"><Eyebrow>Timestamp</Eyebrow></th>
+                      <th className="pb-2 text-left"><Eyebrow>Type</Eyebrow></th>
+                      <th className="pb-2 text-left"><Eyebrow>Unit</Eyebrow></th>
+                      <th className="pb-2 text-left"><Eyebrow>Shift</Eyebrow></th>
+                      <th className="pb-2 text-left"><Eyebrow>Seat</Eyebrow></th>
+                      <th className="pb-2 text-left"><Eyebrow>Note</Eyebrow></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feedItems.map((item) => (
+                      <tr key={item.id} className="border-t-[0.5px] border-[var(--color-border-soft)]">
+                        <td className="py-2 text-[12px] text-[var(--color-text-secondary)]">
+                          {item.timestamp ? new Date(item.timestamp).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-2 text-[12px] text-[var(--color-text-primary)]">{item.signalType}</td>
+                        <td className="py-2 text-[12px] text-[var(--color-text-primary)]">{item.unit}</td>
+                        <td className="py-2 text-[12px] text-[var(--color-text-primary)]">{item.shift}</td>
+                        <td className="py-2 text-[12px] text-[var(--color-text-secondary)]">
+                          {item.seatLabel || '—'}
+                        </td>
+                        <td className="py-2 text-[12px] text-[var(--color-text-secondary)]">
+                          {item.noteSnippet || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                    {feedItems.length === 0 && (
+                      <tr className="border-t-[0.5px] border-[var(--color-border-soft)]">
+                        <td colSpan={6} className="py-6 text-center text-[12px] text-[var(--color-text-muted)]">
+                          No activity in this range.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={feedPage <= 1}
+                  onClick={() => setFeedPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-[12px] text-[var(--color-text-muted)]">
+                  Page {feedPage} / {totalFeedPages}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={feedPage >= totalFeedPages}
+                  onClick={() => setFeedPage((p) => Math.min(totalFeedPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </section>
 
         <div className="pt-2 text-center text-[12px] text-[var(--color-text-muted)]">
           From insight to impact: where work breaks down, what staff compensate for, and where to

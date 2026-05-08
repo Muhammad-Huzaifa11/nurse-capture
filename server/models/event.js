@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const SIGNAL_TYPES = ['interruption', 'compensation'];
 const SHIFTS = ['night', 'day', 'evening'];
-const UNIT_KEYS = ['nicu-a', 'nicu-b', 'stepdown', 'other'];
+const UNIT_KEYS = ['icu', 'med-surg', 'ed', 'stepdown', 'other'];
 
 const eventSchema = new mongoose.Schema(
   {

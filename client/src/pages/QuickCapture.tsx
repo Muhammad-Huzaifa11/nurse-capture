@@ -1,40 +1,209 @@
-import { useState } from 'react'
-import { ArrowRight, ChevronDown, ChevronUp, RefreshCw, Zap } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+  CloudOff,
+  KeyRound,
+  RefreshCw,
+  Zap,
+} from 'lucide-react'
 import { AppHeader } from '@/components/AppHeader'
-import { Select, TextArea } from '@/components/system/primitives'
+import { Button, TextArea, TextField } from '@/components/system/primitives'
 import { cn } from '@/lib/utils'
-import { apiFetch } from '@/lib/api'
+import { useSeatAuth } from '@/auth/SeatAuthContext'
 
 type SignalType = 'interruption' | 'compensation'
 
 type CardStatus = 'idle' | 'submitting' | 'success'
 
-const SHIFT_OPTIONS = [
-  { value: 'night', label: 'Night' },
-  { value: 'day', label: 'Day' },
-  { value: 'evening', label: 'Evening' },
-]
-
-const UNIT_OPTIONS = [
-  { value: 'nicu-a', label: 'NICU A' },
-  { value: 'nicu-b', label: 'NICU B' },
-  { value: 'stepdown', label: 'Stepdown' },
-  { value: 'other', label: 'Other' },
-]
+const PENDING_COUNT_KEY = 'nurse-capture-pending-count'
 
 export function QuickCapture() {
+  const { isAuthenticated, isAuthReady, seat } = useSeatAuth()
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-svh bg-[var(--color-bg-base)]">
+        <AppHeader />
+        <main className="mx-auto w-full max-w-[480px] px-5 pt-20 text-center text-[13px] text-[var(--color-text-muted)]">
+          Loading…
+        </main>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated || !seat) {
+    return <SeatGate />
+  }
+
+  return <CaptureScreen seat={seat} />
+}
+
+/** ============================================================
+ *  Seat gate — code entry screen
+ *  ============================================================ */
+
+function SeatGate() {
+  const { redeemCode, lastDisconnectReason, isOnline } = useSeatAuth()
+  const [code, setCode] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (isSubmitting) return
+    setError(null)
+    setIsSubmitting(true)
+    try {
+      await redeemCode(code)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Code not recognized.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="min-h-svh bg-[var(--color-bg-base)]">
+      <AppHeader />
+      <main className="mx-auto w-full max-w-[420px] px-5 pt-12 pb-16">
+        <div className="surface-card fade-in p-6">
+          <span className="flex size-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-brand-purple-tint)] text-[var(--color-brand-purple)]">
+            <KeyRound className="size-4" strokeWidth={1.75} aria-hidden />
+          </span>
+          <h1 className="mt-4 text-xl-tight text-[var(--color-text-primary)]">
+            Enter your unit code
+          </h1>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
+            One-time per device. Once entered, capture stays one-tap. Codes are tied to a
+            unit and shift — never to a person.
+          </p>
+
+          {!isOnline ? (
+            <p className="mt-4 rounded-[var(--radius-sm)] border-[0.5px] border-[var(--color-warning)] bg-[var(--color-warning-tint)] px-3 py-2 text-[12px] text-[var(--color-warning)]">
+              You're offline. Connect to a network to redeem your code.
+            </p>
+          ) : lastDisconnectReason ? (
+            <p className="mt-4 rounded-[var(--radius-sm)] border-[0.5px] border-[var(--color-warning)] bg-[var(--color-warning-tint)] px-3 py-2 text-[12px] text-[var(--color-warning)]">
+              {lastDisconnectReason}
+            </p>
+          ) : null}
+
+          <form onSubmit={handleSubmit} className="mt-5 space-y-3">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="seat-code"
+                className="block text-[12px] font-medium text-[var(--color-text-secondary)]"
+              >
+                Unit code
+              </label>
+              <TextField
+                id="seat-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="e.g. NICU-A-DAY-7K3F"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                className="h-10 tracking-[0.04em] uppercase"
+              />
+            </div>
+
+            {error ? (
+              <p className="text-[13px] font-medium text-[var(--color-danger)]" role="alert">
+                {error}
+              </p>
+            ) : null}
+
+            <Button
+              type="submit"
+              variant="filled"
+              size="md"
+              className="w-full"
+              disabled={isSubmitting || !code.trim() || !isOnline}
+            >
+              {isSubmitting ? 'Checking…' : 'Continue'}
+            </Button>
+          </form>
+
+          <p className="mt-5 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+            We don't track who tapped — only which unit and shift the tap came from.
+          </p>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+/** ============================================================
+ *  Capture screen (post-redemption)
+ *  ============================================================ */
+
+type SeatLite = {
+  id: string
+  label: string
+  unitKey: string
+  shift: string
+}
+
+function readPendingCount(): number {
+  try {
+    const raw = window.localStorage.getItem(PENDING_COUNT_KEY)
+    const n = raw ? Number(raw) : 0
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch (_err) {
+    return 0
+  }
+}
+
+function writePendingCount(n: number) {
+  try {
+    if (n <= 0) {
+      window.localStorage.removeItem(PENDING_COUNT_KEY)
+    } else {
+      window.localStorage.setItem(PENDING_COUNT_KEY, String(n))
+    }
+  } catch (_err) {
+    /* non-fatal */
+  }
+}
+
+function CaptureScreen({ seat }: { seat: SeatLite }) {
+  const { seatFetch, clearSeat, isOnline, isStale } = useSeatAuth()
+
   const [note, setNote] = useState('')
-  const [shift, setShift] = useState('')
-  const [unitKey, setUnitKey] = useState('')
   const [showContext, setShowContext] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [interruptionStatus, setInterruptionStatus] = useState<CardStatus>('idle')
   const [compensationStatus, setCompensationStatus] = useState<CardStatus>('idle')
+  const [pendingCount, setPendingCount] = useState<number>(() => readPendingCount())
 
   const isAnySubmitting =
     interruptionStatus === 'submitting' || compensationStatus === 'submitting'
 
-  const hasContext = Boolean(shift || unitKey || note.trim())
+  /**
+   * When the device comes back online and we have queued events, give the
+   * service worker a few seconds to flush its background sync queue, then
+   * clear the local indicator. The actual retry is the SW's job; this is
+   * just the UX telling the nurse "we're caught up."
+   */
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0) return
+    const t = window.setTimeout(() => {
+      setPendingCount(0)
+      writePendingCount(0)
+    }, 5000)
+    return () => window.clearTimeout(t)
+  }, [isOnline, pendingCount])
+
+  function bumpPending() {
+    setPendingCount((prev) => {
+      const next = prev + 1
+      writePendingCount(next)
+      return next
+    })
+  }
 
   async function submitSignal(signalType: SignalType) {
     if (isAnySubmitting) return
@@ -45,27 +214,23 @@ export function QuickCapture() {
     setSubmitError(null)
     setStatus('submitting')
 
+    const payload: { signalType: SignalType; note?: string; occurredAt: string } = {
+      signalType,
+      occurredAt: new Date().toISOString(),
+    }
+    if (note.trim()) payload.note = note.trim()
+
     try {
-      const payload: {
-        signalType: SignalType
-        shift?: string
-        unitKey?: string
-        note?: string
-        occurredAt: string
-      } = {
-        signalType,
-        occurredAt: new Date().toISOString(),
-      }
-
-      if (shift) payload.shift = shift
-      if (unitKey) payload.unitKey = unitKey
-      if (note.trim()) payload.note = note.trim()
-
-      const response = await apiFetch('/events', {
+      const response = await seatFetch('/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
+
+      if (response.status === 401) {
+        /** seatFetch already cleared the token; the gate will render itself. */
+        return
+      }
 
       const data = await response.json().catch(() => null)
       if (!response.ok) {
@@ -76,6 +241,19 @@ export function QuickCapture() {
       setNote('')
       window.setTimeout(() => setStatus('idle'), 1800)
     } catch (error) {
+      /**
+       * If the device is offline, the Workbox service worker has already
+       * queued the POST in IndexedDB and will retry on reconnect. We treat
+       * this as an optimistic success so the nurse never feels the network.
+       * Real errors (online but rejected) fall through to the error path.
+       */
+      if (!navigator.onLine) {
+        bumpPending()
+        setStatus('success')
+        setNote('')
+        window.setTimeout(() => setStatus('idle'), 1800)
+        return
+      }
       setSubmitError(
         error instanceof Error ? error.message : 'Could not save event. Please try again.'
       )
@@ -87,11 +265,46 @@ export function QuickCapture() {
     <div className="min-h-svh bg-[var(--color-bg-base)]">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-[480px] px-5 pt-10 pb-16">
-        <div className="mb-6 space-y-1.5">
-          <h1 className="text-2xl-tight text-[var(--color-text-primary)]">
-            Quick capture
-          </h1>
+      <main className="mx-auto w-full max-w-[480px] px-5 pt-8 pb-16">
+        {/* Context chip */}
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] px-4 py-2.5 shadow-[var(--shadow-token-sm)]">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span
+              className={cn(
+                'size-2 shrink-0 rounded-full',
+                isOnline
+                  ? 'bg-[var(--color-brand-teal)]'
+                  : 'bg-[var(--color-warning)]'
+              )}
+              aria-hidden
+            />
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-medium leading-tight text-[var(--color-text-primary)]">
+                {seat.label}
+              </p>
+              <p className="text-[11px] leading-tight text-[var(--color-text-muted)]">
+                Captures will be tagged to this unit & shift
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => clearSeat()}
+            className="shrink-0 rounded-[var(--radius-sm)] px-2 py-1 text-[12px] font-medium text-[var(--color-brand-purple)] outline-none transition-colors hover:bg-[var(--color-brand-purple-tint)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2"
+          >
+            Change
+          </button>
+        </div>
+
+        {/* Connectivity / pending-sync indicator */}
+        <ConnectivityRow
+          isOnline={isOnline}
+          isStale={isStale}
+          pendingCount={pendingCount}
+        />
+
+        <div className="mb-6 mt-6 space-y-1.5">
+          <h1 className="text-2xl-tight text-[var(--color-text-primary)]">Quick capture</h1>
           <p className="text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
             Tap one. Everything else is optional.
           </p>
@@ -134,17 +347,15 @@ export function QuickCapture() {
             type="button"
             onClick={() => setShowContext((v) => !v)}
             aria-expanded={showContext}
-            aria-controls="optional-context-panel"
+            aria-controls="optional-note-panel"
             className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[13px] outline-none transition-colors rounded-[var(--radius-lg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-2"
           >
             <span className="flex flex-col">
-              <span className="font-medium text-[var(--color-text-primary)]">
-                Add context
-              </span>
+              <span className="font-medium text-[var(--color-text-primary)]">Add a note</span>
               <span className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
-                {hasContext
-                  ? 'Context will be included with your next tap.'
-                  : 'Optional — skip freely mid-shift.'}
+                {note.trim()
+                  ? 'Note will be attached to your next tap.'
+                  : 'Optional — short context, no patient details.'}
               </span>
             </span>
             {showContext ? (
@@ -156,52 +367,23 @@ export function QuickCapture() {
 
           {showContext && (
             <div
-              id="optional-context-panel"
-              className="panel-expand space-y-4 border-t-[0.5px] border-[var(--color-border-soft)] px-4 py-4"
+              id="optional-note-panel"
+              className="panel-expand space-y-2 border-t-[0.5px] border-[var(--color-border-soft)] px-4 py-4"
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className="block text-[12px] font-medium text-[var(--color-text-secondary)]">
-                    Shift
-                  </label>
-                  <Select
-                    value={shift}
-                    onChange={setShift}
-                    options={SHIFT_OPTIONS}
-                    placeholder="Select shift"
-                    ariaLabel="Shift"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-[12px] font-medium text-[var(--color-text-secondary)]">
-                    Unit
-                  </label>
-                  <Select
-                    value={unitKey}
-                    onChange={setUnitKey}
-                    options={UNIT_OPTIONS}
-                    placeholder="Select unit"
-                    ariaLabel="Unit"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="note"
-                  className="block text-[12px] font-medium text-[var(--color-text-secondary)]"
-                >
-                  Quick note
-                </label>
-                <TextArea
-                  id="note"
-                  rows={3}
-                  maxLength={500}
-                  placeholder="What happened? No patient details."
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </div>
+              <label
+                htmlFor="note"
+                className="block text-[12px] font-medium text-[var(--color-text-secondary)]"
+              >
+                Quick note
+              </label>
+              <TextArea
+                id="note"
+                rows={3}
+                maxLength={500}
+                placeholder="What happened? No patient details."
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
             </div>
           )}
         </div>
@@ -218,6 +400,65 @@ export function QuickCapture() {
           <span>Clinical-grade</span>
         </div>
       </main>
+    </div>
+  )
+}
+
+/** ============================================================
+ *  Connectivity row (offline / pending-sync indicator)
+ *  ============================================================ */
+
+function ConnectivityRow({
+  isOnline,
+  isStale,
+  pendingCount,
+}: {
+  isOnline: boolean
+  isStale: boolean
+  pendingCount: number
+}) {
+  if (isOnline && pendingCount === 0 && !isStale) {
+    return null
+  }
+
+  let tone: 'warning' | 'info' = 'info'
+  let label = ''
+
+  if (!isOnline) {
+    tone = 'warning'
+    label =
+      pendingCount > 0
+        ? `Offline — ${pendingCount} ${pendingCount === 1 ? 'capture' : 'captures'} will sync when you reconnect`
+        : 'Offline — captures will sync when you reconnect'
+  } else if (pendingCount > 0) {
+    tone = 'info'
+    label = `Syncing ${pendingCount} ${pendingCount === 1 ? 'capture' : 'captures'}…`
+  } else if (isStale) {
+    tone = 'info'
+    label = 'Reconnecting…'
+  }
+
+  if (!label) return null
+
+  const isWarn = tone === 'warning'
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        'flex items-center gap-2 rounded-[var(--radius-sm)] border-[0.5px] px-3 py-2 text-[12px] fade-in',
+        isWarn
+          ? 'border-[var(--color-warning)] bg-[var(--color-warning-tint)] text-[var(--color-warning)]'
+          : 'border-[var(--color-border-soft)] bg-[var(--color-bg-raised)] text-[var(--color-text-secondary)]'
+      )}
+    >
+      <CloudOff
+        className={cn('size-3.5 shrink-0', !isWarn && 'opacity-70')}
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <span className="truncate">{label}</span>
     </div>
   )
 }
