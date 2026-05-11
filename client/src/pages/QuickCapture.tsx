@@ -19,6 +19,48 @@ type CardStatus = 'idle' | 'submitting' | 'success'
 
 const PENDING_COUNT_KEY = 'nurse-capture-pending-count'
 
+/** Matches server `SEAT_CAPTURE_COOLDOWN_MS` — shared cooldown after any capture. */
+const CAPTURE_COOLDOWN_MS = 3 * 60 * 1000
+
+function captureCooldownStorageKey(seatId: string) {
+  return `nurse-capture-capture-cooldown-until-${seatId}`
+}
+
+function readCooldownUntil(seatId: string): number | null {
+  try {
+    const raw = window.localStorage.getItem(captureCooldownStorageKey(seatId))
+    if (!raw) return null
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n <= Date.now()) {
+      window.localStorage.removeItem(captureCooldownStorageKey(seatId))
+      return null
+    }
+    return n
+  } catch (_err) {
+    return null
+  }
+}
+
+function writeCooldownUntil(seatId: string, untilMs: number | null) {
+  try {
+    const key = captureCooldownStorageKey(seatId)
+    if (untilMs == null || untilMs <= Date.now()) {
+      window.localStorage.removeItem(key)
+    } else {
+      window.localStorage.setItem(key, String(untilMs))
+    }
+  } catch (_err) {
+    /* non-fatal */
+  }
+}
+
+function formatCooldownRemaining(totalSeconds: number): string {
+  const s = Math.max(0, totalSeconds)
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}:${r.toString().padStart(2, '0')}`
+}
+
 export function QuickCapture() {
   const { isAuthenticated, isAuthReady, seat } = useSeatAuth()
 
@@ -181,9 +223,39 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
   const [interruptionStatus, setInterruptionStatus] = useState<CardStatus>('idle')
   const [compensationStatus, setCompensationStatus] = useState<CardStatus>('idle')
   const [pendingCount, setPendingCount] = useState<number>(() => readPendingCount())
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(() =>
+    readCooldownUntil(seat.id)
+  )
+  /** Drives a re-render every second while a cooldown is active. */
+  const [, setCooldownTick] = useState(0)
 
   const isAnySubmitting =
     interruptionStatus === 'submitting' || compensationStatus === 'submitting'
+
+  const cooldownRemainingSec =
+    cooldownUntil != null ? Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000)) : 0
+  const inCooldown = cooldownRemainingSec > 0
+
+  useEffect(() => {
+    setCooldownUntil(readCooldownUntil(seat.id))
+  }, [seat.id])
+
+  useEffect(() => {
+    if (cooldownUntil == null || Date.now() >= cooldownUntil) return
+    const id = window.setInterval(() => {
+      setCooldownTick((x) => x + 1)
+      if (Date.now() >= cooldownUntil) {
+        setCooldownUntil(null)
+        writeCooldownUntil(seat.id, null)
+      }
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [cooldownUntil, seat.id])
+
+  function armCooldown(untilMs: number) {
+    setCooldownUntil(untilMs)
+    writeCooldownUntil(seat.id, untilMs)
+  }
 
   /**
    * When the device comes back online and we have queued events, give the
@@ -210,6 +282,7 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
   async function submitSignal(signalType: SignalType) {
     if (isAnySubmitting) return
+    if (inCooldown) return
 
     const setStatus =
       signalType === 'interruption' ? setInterruptionStatus : setCompensationStatus
@@ -232,14 +305,25 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
       if (response.status === 401) {
         /** seatFetch already cleared the token; the gate will render itself. */
+        setStatus('idle')
         return
       }
 
       const data = await response.json().catch(() => null)
+
+      if (response.status === 429) {
+        const retrySec =
+          typeof data?.retryAfterSeconds === 'number' ? data.retryAfterSeconds : 180
+        armCooldown(Date.now() + retrySec * 1000)
+        setStatus('idle')
+        return
+      }
+
       if (!response.ok) {
         throw new Error(data?.error || 'Could not save event. Please try again.')
       }
 
+      armCooldown(Date.now() + CAPTURE_COOLDOWN_MS)
       setStatus('success')
       setNote('')
       window.setTimeout(() => setStatus('idle'), 1800)
@@ -252,6 +336,7 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
        */
       if (!navigator.onLine) {
         bumpPending()
+        armCooldown(Date.now() + CAPTURE_COOLDOWN_MS)
         setStatus('success')
         setNote('')
         window.setTimeout(() => setStatus('idle'), 1800)
@@ -321,6 +406,16 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
               </p>
             </div>
 
+            {inCooldown ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mb-3 rounded-[var(--radius-sm)] border-[0.5px] border-[var(--color-warning)] bg-[var(--color-warning-tint)] px-3 py-2.5 text-center text-[12px] font-medium leading-snug text-[var(--color-warning)]"
+              >
+                Next capture in {formatCooldownRemaining(cooldownRemainingSec)}
+              </div>
+            ) : null}
+
             <div className="space-y-3">
               <CaptureCard
                 tone="purple"
@@ -328,7 +423,9 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
                 subtitle="Something pulled you away from your intended task."
                 icon={<Zap className="size-5" strokeWidth={2} aria-hidden />}
                 status={interruptionStatus}
-                disabled={isAnySubmitting && interruptionStatus !== 'submitting'}
+                disabled={
+                  inCooldown || (isAnySubmitting && interruptionStatus !== 'submitting')
+                }
                 onClick={() => submitSignal('interruption')}
               />
               <CaptureCard
@@ -337,7 +434,9 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
                 subtitle="Something you did to work around a gap or problem."
                 icon={<RefreshCw className="size-5" strokeWidth={2} aria-hidden />}
                 status={compensationStatus}
-                disabled={isAnySubmitting && compensationStatus !== 'submitting'}
+                disabled={
+                  inCooldown || (isAnySubmitting && compensationStatus !== 'submitting')
+                }
                 onClick={() => submitSignal('compensation')}
               />
             </div>

@@ -16,6 +16,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-me';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 /** Seat tokens are operational; longer-lived but still revocable per request via DB lookup. */
 const SEAT_JWT_EXPIRES_IN = process.env.SEAT_JWT_EXPIRES_IN || '30d';
+/** Minimum time between accepted captures for the same seat (any signal type). */
+const SEAT_CAPTURE_COOLDOWN_MS = 3 * 60 * 1000;
 
 app.use(cors());
 app.use(express.json());
@@ -464,26 +466,58 @@ app.post('/events', requireSeat, async (req, res, next) => {
       throw badRequest('note must be 500 characters or fewer.');
     }
 
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - SEAT_CAPTURE_COOLDOWN_MS);
+
+    /**
+     * Shared cooldown per seat: one clock for interruption and compensation.
+     * Atomically claim a slot by bumping lastUsedAt only if outside the window.
+     */
+    const seatBefore = await Seat.findOneAndUpdate(
+      {
+        _id: req.auth.seatId,
+        $or: [{ lastUsedAt: null }, { lastUsedAt: { $lte: cutoff } }],
+      },
+      { $set: { lastUsedAt: now } }
+    );
+
+    if (!seatBefore) {
+      const s = await Seat.findById(req.auth.seatId).select('lastUsedAt').lean();
+      const lastMs = s?.lastUsedAt ? new Date(s.lastUsedAt).getTime() : now.getTime();
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((SEAT_CAPTURE_COOLDOWN_MS - (now.getTime() - lastMs)) / 1000)
+      );
+      return res.status(429).json({
+        ok: false,
+        error: 'Please wait before logging another event.',
+        retryAfterSeconds,
+      });
+    }
+
     /**
      * Unit + shift come from the seat (req.auth) — never the client body.
      * This is the key privacy/integrity guarantee: the device cannot lie
      * about which unit/shift it is reporting from.
      */
-    const event = await Event.create({
-      signalType,
-      shift: req.auth.shift,
-      unitKey: req.auth.unitKey,
-      note: normalizedNote,
-      occurredAt: normalizedOccurredAt,
-      receivedAt: new Date(),
-      schemaVersion: 1,
-    });
-
-    /** Best-effort touch of seat usage. Non-blocking. */
-    Seat.updateOne(
-      { _id: req.auth.seatId },
-      { $set: { lastUsedAt: new Date() } }
-    ).catch(() => {});
+    let event;
+    try {
+      event = await Event.create({
+        signalType,
+        shift: req.auth.shift,
+        unitKey: req.auth.unitKey,
+        note: normalizedNote,
+        occurredAt: normalizedOccurredAt,
+        receivedAt: new Date(),
+        schemaVersion: 1,
+      });
+    } catch (createErr) {
+      await Seat.updateOne(
+        { _id: req.auth.seatId },
+        { $set: { lastUsedAt: seatBefore.lastUsedAt ?? null } }
+      ).catch(() => {});
+      throw createErr;
+    }
 
     return res.status(201).json({
       ok: true,
