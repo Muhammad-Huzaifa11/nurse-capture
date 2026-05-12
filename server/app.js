@@ -17,6 +17,8 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const SEAT_JWT_EXPIRES_IN = process.env.SEAT_JWT_EXPIRES_IN || '30d';
 /** Minimum time between accepted captures for the same seat (any signal type). */
 const SEAT_CAPTURE_COOLDOWN_MS = 3 * 60 * 1000;
+/** Reject occurredAt older than this (abuse / stale queue guard). */
+const OCCURRED_AT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 app.set('trust proxy', 1);
 
@@ -85,6 +87,22 @@ function parseOccurredAt(value) {
     throw badRequest('occurredAt must be a valid ISO timestamp.');
   }
   return parsed;
+}
+
+/**
+ * Clock used for capture cooldown: client tap time when trustworthy, else server now.
+ * Future client times clamp to now; very old times reject.
+ */
+function resolveCooldownAnchorTime(parsedOccurredAt, now) {
+  let t = parsedOccurredAt != null ? new Date(parsedOccurredAt.getTime()) : new Date(now.getTime());
+  if (t.getTime() > now.getTime()) {
+    t = new Date(now.getTime());
+  }
+  const oldest = new Date(now.getTime() - OCCURRED_AT_MAX_AGE_MS);
+  if (t.getTime() < oldest.getTime()) {
+    throw badRequest('occurredAt is too far in the past.');
+  }
+  return t;
 }
 
 /**
@@ -488,23 +506,30 @@ app.post('/events', requireSeat, async (req, res, next) => {
     }
 
     const now = new Date();
-    const cutoff = new Date(now.getTime() - SEAT_CAPTURE_COOLDOWN_MS);
+    const cooldownAnchor = resolveCooldownAnchorTime(normalizedOccurredAt, now);
+    const cutoffPriorTap = new Date(cooldownAnchor.getTime() - SEAT_CAPTURE_COOLDOWN_MS);
 
     /**
-     * Shared cooldown per seat: one clock for interruption and compensation.
-     * Atomically claim a slot by bumping lastUsedAt only if outside the window.
+     * Shared cooldown per seat using tap-time (occurredAt), so offline-queued
+     * replays that arrive together still succeed when taps were ≥ cooldown apart.
+     * `lastCaptureOccurredAt` is separate from `lastUsedAt` (redeem / admin touch).
      */
     const seatBefore = await Seat.findOneAndUpdate(
       {
         _id: req.auth.seatId,
-        $or: [{ lastUsedAt: null }, { lastUsedAt: { $lte: cutoff } }],
+        $or: [
+          { lastCaptureOccurredAt: null },
+          { lastCaptureOccurredAt: { $lte: cutoffPriorTap } },
+        ],
       },
-      { $set: { lastUsedAt: now } }
+      { $set: { lastCaptureOccurredAt: cooldownAnchor } }
     );
 
     if (!seatBefore) {
-      const s = await Seat.findById(req.auth.seatId).select('lastUsedAt').lean();
-      const lastMs = s?.lastUsedAt ? new Date(s.lastUsedAt).getTime() : now.getTime();
+      const s = await Seat.findById(req.auth.seatId).select('lastCaptureOccurredAt').lean();
+      const lastMs = s?.lastCaptureOccurredAt
+        ? new Date(s.lastCaptureOccurredAt).getTime()
+        : now.getTime() - SEAT_CAPTURE_COOLDOWN_MS;
       const retryAfterSeconds = Math.max(
         1,
         Math.ceil((SEAT_CAPTURE_COOLDOWN_MS - (now.getTime() - lastMs)) / 1000)
@@ -535,10 +560,13 @@ app.post('/events', requireSeat, async (req, res, next) => {
     } catch (createErr) {
       await Seat.updateOne(
         { _id: req.auth.seatId },
-        { $set: { lastUsedAt: seatBefore.lastUsedAt ?? null } }
+        { $set: { lastCaptureOccurredAt: seatBefore.lastCaptureOccurredAt ?? null } }
       ).catch(() => {});
       throw createErr;
     }
+
+    /** Admin “last activity” — decoupled from cooldown anchor. */
+    Seat.updateOne({ _id: req.auth.seatId }, { $set: { lastUsedAt: new Date() } }).catch(() => {});
 
     return res.status(201).json({
       ok: true,

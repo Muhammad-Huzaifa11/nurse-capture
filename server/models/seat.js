@@ -74,6 +74,11 @@ const seatSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Last accepted capture tap time — used only for rate cooldown (not redeem). */
+    lastCaptureOccurredAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
