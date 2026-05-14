@@ -534,6 +534,18 @@ app.post('/events', requireSeat, async (req, res, next) => {
         1,
         Math.ceil((SEAT_CAPTURE_COOLDOWN_MS - (now.getTime() - lastMs)) / 1000)
       );
+      /** TEMP(ios-debug): remove after investigating offline replay 429s */
+      console.log('[POST /events 429] TEMP', {
+        seatId: String(req.auth.seatId),
+        body,
+        occurredAt: body.occurredAt,
+        cooldownAnchorIso: cooldownAnchor.toISOString(),
+        lastCaptureOccurredAtIso: s?.lastCaptureOccurredAt
+          ? new Date(s.lastCaptureOccurredAt).toISOString()
+          : null,
+        retryAfterSeconds,
+        nowIso: now.toISOString(),
+      });
       return res.status(429).json({
         ok: false,
         error: 'Please wait before logging another event.',
