@@ -98,7 +98,7 @@ export function Dashboard() {
     <div className="min-h-svh bg-[var(--color-bg-base)]">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-[1100px] space-y-8 px-6 py-10 fade-in">
+      <main className="mx-auto w-full max-w-[1100px] space-y-8 px-4 py-10 fade-in sm:px-6">
         <DashboardToolbar
           datePreset={datePreset}
           setDatePreset={setDatePreset}

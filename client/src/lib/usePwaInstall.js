@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
+ * Chromium may fire `beforeinstallprompt` only once per full page load. Each
+ * route mounts its own `<AppHeader />`, so we keep the deferred event in
+ * module scope so client-side navigation does not lose `canInstall`.
+ *
  * Listens for `beforeinstallprompt` and exposes a one-shot `promptInstall()`.
  *
  * The event only fires on Chromium-based browsers (Chrome, Edge, Brave, Samsung
@@ -8,8 +12,10 @@ import { useCallback, useEffect, useState } from 'react'
  * — the only path there is Share → Add to Home Screen, which we surface via
  * the `isIosSafari` flag so the UI can show its own hint.
  */
+let storedDeferredPrompt = null
+
 export function usePwaInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState(null)
+  const [deferredPrompt, setDeferredPrompt] = useState(() => storedDeferredPrompt)
   const [isInstalled, setIsInstalled] = useState(() => {
     if (typeof window === 'undefined') return false
     return (
@@ -21,11 +27,16 @@ export function usePwaInstall() {
   useEffect(() => {
     function handleBeforeInstall(event) {
       event.preventDefault()
+      storedDeferredPrompt = event
       setDeferredPrompt(event)
     }
     function handleInstalled() {
-      setIsInstalled(true)
+      storedDeferredPrompt = null
       setDeferredPrompt(null)
+      setIsInstalled(true)
+    }
+    if (storedDeferredPrompt) {
+      setDeferredPrompt(storedDeferredPrompt)
     }
     window.addEventListener('beforeinstallprompt', handleBeforeInstall)
     window.addEventListener('appinstalled', handleInstalled)
@@ -36,12 +47,14 @@ export function usePwaInstall() {
   }, [])
 
   const promptInstall = useCallback(async () => {
-    if (!deferredPrompt) return null
-    await deferredPrompt.prompt()
-    const choice = await deferredPrompt.userChoice
+    const p = storedDeferredPrompt
+    if (!p) return null
+    await p.prompt()
+    const choice = await p.userChoice
+    storedDeferredPrompt = null
     setDeferredPrompt(null)
     return choice?.outcome ?? null
-  }, [deferredPrompt])
+  }, [])
 
   const isIosSafari = (() => {
     if (typeof navigator === 'undefined') return false
@@ -52,7 +65,7 @@ export function usePwaInstall() {
   })()
 
   return {
-    canInstall: Boolean(deferredPrompt),
+    canInstall: Boolean(storedDeferredPrompt),
     isInstalled,
     isIosSafari,
     promptInstall,
