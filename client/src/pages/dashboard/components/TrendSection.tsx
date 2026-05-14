@@ -72,7 +72,7 @@ export function TrendSection({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData}
-                  margin={{ top: 12, right: 8, left: 0, bottom: 4 }}
+                  margin={{ top: 12, right: 12, left: 12, bottom: 4 }}
                   barCategoryGap={trendPoints.length > 14 ? 2 : 8}
                 >
                   <CartesianGrid
@@ -145,7 +145,7 @@ export function TrendSection({
           ) : (
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 4 }}>
+                <AreaChart data={chartData} margin={{ top: 12, right: 12, left: 12, bottom: 4 }}>
                   <defs>
                     <linearGradient id="grad-interruptions" x1="0" y1="0" x2="0" y2="1">
                       <stop

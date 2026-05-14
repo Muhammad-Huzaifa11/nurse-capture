@@ -15,8 +15,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-me';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 /** Seat tokens are operational; longer-lived but still revocable per request via DB lookup. */
 const SEAT_JWT_EXPIRES_IN = process.env.SEAT_JWT_EXPIRES_IN || '30d';
-/** Minimum time between accepted captures for the same seat (any signal type). */
-const SEAT_CAPTURE_COOLDOWN_MS = 3 * 60 * 1000;
+/** Minimum time between accepted captures for the same seat (any signal type). 15s — client `CAPTURE_COOLDOWN_MS` must match. */
+const SEAT_CAPTURE_COOLDOWN_MS = 15 * 1000;
 /** Reject occurredAt older than this (abuse / stale queue guard). */
 const OCCURRED_AT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 

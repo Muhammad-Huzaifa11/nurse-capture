@@ -43,7 +43,7 @@ export function DashboardToolbar({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <Select
           value={datePreset}
           onChange={(v) => setDatePreset(v as DatePreset)}
@@ -53,22 +53,38 @@ export function DashboardToolbar({
           className="min-w-[160px]"
         />
         {datePreset === 'custom' && (
-          <>
-            <TextField
-              type="date"
-              value={customStart}
-              onChange={(e) => setCustomStart(e.target.value)}
-              aria-label="Custom range start date"
-              className="h-8 min-w-[150px]"
-            />
-            <TextField
-              type="date"
-              value={customEnd}
-              onChange={(e) => setCustomEnd(e.target.value)}
-              aria-label="Custom range end date"
-              className="h-8 min-w-[150px]"
-            />
-          </>
+          <div className="flex w-full basis-full flex-col gap-3 sm:inline-flex sm:w-auto sm:basis-auto sm:max-w-none sm:flex-row sm:items-end sm:gap-3">
+            <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 sm:flex-initial">
+              <label
+                htmlFor="dashboard-custom-start"
+                className="block shrink-0 text-[12px] font-medium leading-none text-[var(--color-text-secondary)]"
+              >
+                Start date
+              </label>
+              <TextField
+                id="dashboard-custom-start"
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="h-8 w-full min-w-0 sm:min-w-[150px]"
+              />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 sm:flex-initial">
+              <label
+                htmlFor="dashboard-custom-end"
+                className="block shrink-0 text-[12px] font-medium leading-none text-[var(--color-text-secondary)]"
+              >
+                End date
+              </label>
+              <TextField
+                id="dashboard-custom-end"
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="h-8 w-full min-w-0 sm:min-w-[150px]"
+              />
+            </div>
+          </div>
         )}
         <Select
           value={unitFilter}

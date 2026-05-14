@@ -20,7 +20,8 @@ type CardStatus = 'idle' | 'submitting' | 'success'
 const PENDING_COUNT_KEY = 'nurse-capture-pending-count'
 
 /** Matches server `SEAT_CAPTURE_COOLDOWN_MS` — shared cooldown after any capture. */
-const CAPTURE_COOLDOWN_MS = 3 * 60 * 1000
+const CAPTURE_COOLDOWN_SEC = 15
+const CAPTURE_COOLDOWN_MS = CAPTURE_COOLDOWN_SEC * 1000
 
 function captureCooldownStorageKey(seatId: string) {
   return `nurse-capture-capture-cooldown-until-${seatId}`
@@ -35,7 +36,17 @@ function readCooldownUntil(seatId: string): number | null {
       window.localStorage.removeItem(captureCooldownStorageKey(seatId))
       return null
     }
-    return n
+    /** Never keep a client-side wait longer than the current cooldown policy (e.g. after shortening 3m → 15s). */
+    const cap = Date.now() + CAPTURE_COOLDOWN_MS
+    const effective = Math.min(n, cap)
+    if (effective <= Date.now()) {
+      window.localStorage.removeItem(captureCooldownStorageKey(seatId))
+      return null
+    }
+    if (effective < n) {
+      window.localStorage.setItem(captureCooldownStorageKey(seatId), String(effective))
+    }
+    return effective
   } catch (_err) {
     return null
   }
@@ -59,6 +70,28 @@ function formatCooldownRemaining(totalSeconds: number): string {
   const m = Math.floor(s / 60)
   const r = s % 60
   return `${m}:${r.toString().padStart(2, '0')}`
+}
+
+function AppVersionFootnote() {
+  const version = import.meta.env.VITE_APP_VERSION
+  const rawCommit = import.meta.env.VITE_APP_COMMIT?.trim()
+  const commit =
+    rawCommit && rawCommit.length > 0 ? rawCommit.slice(0, 7) : null
+  const vLabel =
+    version && version.length > 0
+      ? version.startsWith('v')
+        ? version
+        : `v${version}`
+      : 'dev'
+  const line = commit ? `${vLabel} · ${commit}` : vLabel
+  return (
+    <p
+      className="mt-6 text-center text-[10px] leading-relaxed text-[var(--color-text-muted)] tabular-nums"
+      aria-label={`App version ${vLabel}${commit ? `, build ${commit}` : ''}`}
+    >
+      {line}
+    </p>
+  )
 }
 
 export function QuickCapture() {
@@ -175,6 +208,7 @@ function SeatGate() {
           </p>
           </div>
         </div>
+        <AppVersionFootnote />
       </main>
     </div>
   )
@@ -313,7 +347,9 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
       if (response.status === 429) {
         const retrySec =
-          typeof data?.retryAfterSeconds === 'number' ? data.retryAfterSeconds : 180
+          typeof data?.retryAfterSeconds === 'number' && Number.isFinite(data.retryAfterSeconds)
+            ? Math.max(1, Math.ceil(data.retryAfterSeconds))
+            : CAPTURE_COOLDOWN_SEC
         armCooldown(Date.now() + retrySec * 1000)
         setStatus('idle')
         return
@@ -517,6 +553,7 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
             </div>
           </div>
         </div>
+        <AppVersionFootnote />
       </main>
 
       <ConfirmChangeSeatModal
@@ -621,18 +658,18 @@ function ConnectivityRow({
       role="status"
       aria-live="polite"
       className={cn(
-        'flex items-center gap-2 rounded-[var(--radius-sm)] border-[0.5px] px-3 py-2 text-[12px] fade-in',
+        'flex items-start gap-2 rounded-[var(--radius-sm)] border-[0.5px] px-3 py-2 text-[12px] fade-in',
         isWarn
           ? 'border-[var(--color-warning)] bg-[var(--color-warning-tint)] text-[var(--color-warning)]'
           : 'border-[var(--color-border-soft)] bg-[var(--color-bg-raised)] text-[var(--color-text-secondary)]'
       )}
     >
       <CloudOff
-        className={cn('size-3.5 shrink-0', !isWarn && 'opacity-70')}
+        className={cn('mt-0.5 size-3.5 shrink-0', !isWarn && 'opacity-70')}
         strokeWidth={1.75}
         aria-hidden
       />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 flex-1 leading-snug">{label}</span>
     </div>
   )
 }

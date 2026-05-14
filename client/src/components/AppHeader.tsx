@@ -32,7 +32,7 @@ export function AppHeader() {
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      'relative inline-flex h-[52px] items-center text-[13px] font-medium transition-colors',
+      'relative inline-flex h-[52px] shrink-0 items-center text-[12px] font-medium transition-colors sm:text-[13px]',
       isActive
         ? 'text-[var(--color-brand-purple)]'
         : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]',
@@ -47,19 +47,19 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-20 border-b-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)]">
-      <div className="mx-auto flex h-[52px] w-full max-w-[1100px] items-center justify-between gap-4 px-6">
+      <div className="mx-auto flex h-[52px] w-full max-w-[1100px] items-center gap-2 px-3 sm:gap-4 sm:px-6">
         <Link
           to="/"
-          className="flex items-center gap-2 text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:text-[var(--color-brand-purple)]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:text-[var(--color-brand-purple)] sm:gap-2"
         >
-          <span className="inline-flex size-5 items-center justify-center rounded-[5px] bg-[var(--color-brand-purple)] text-white">
+          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-[var(--color-brand-purple)] text-white">
             <span className="block size-1.5 rounded-full bg-white" aria-hidden />
           </span>
-          Invisible workload
+          <span className="min-w-0 truncate">Invisible workload</span>
         </Link>
 
-        <div className="flex items-center gap-4">
-          <nav className="flex h-full items-center gap-6">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
+          <nav className="flex h-full shrink-0 items-center gap-2 sm:gap-4 md:gap-6">
             <NavLink to="/capture" className={navLinkClass}>
               Capture
             </NavLink>
@@ -79,20 +79,26 @@ export function AppHeader() {
               size="sm"
               onClick={handleInstall}
               aria-label={canInstall ? 'Install app' : 'How to install on iOS'}
+              className="max-sm:px-2"
             >
-              <Download className="mr-1.5 size-3.5" strokeWidth={1.75} aria-hidden />
-              Install
+              <Download
+                className="size-3.5 sm:mr-1.5"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className="hidden sm:inline">Install</span>
             </Button>
           ) : null}
 
           {isAuthenticated && isAdminArea ? (
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <Button variant="ghost" size="sm" className="max-sm:px-2" onClick={handleLogout}>
               Logout
             </Button>
           ) : !isAuthenticated ? (
             <Button
               variant="filled"
               size="sm"
+              className="max-sm:px-2.5"
               onClick={() => navigate('/login')}
             >
               Login
@@ -104,7 +110,7 @@ export function AppHeader() {
       {showIosHint && isIosSafari ? (
         <div
           role="status"
-          className="border-t-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-brand-purple-tint)] px-6 py-2.5 text-[12px] leading-relaxed text-[var(--color-text-primary)] fade-in"
+          className="border-t-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-brand-purple-tint)] px-3 py-2.5 text-[12px] leading-relaxed text-[var(--color-text-primary)] fade-in sm:px-6"
         >
           <span className="inline-flex items-center gap-1.5">
             <Share className="size-3.5 text-[var(--color-brand-purple)]" strokeWidth={1.75} aria-hidden />

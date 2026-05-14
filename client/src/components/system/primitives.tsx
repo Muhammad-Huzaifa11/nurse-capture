@@ -282,7 +282,8 @@ export function Select({
     }
   }
 
-  const triggerHeight = size === 'sm' ? 'h-8' : 'h-9'
+  const triggerSizing =
+    size === 'sm' ? 'min-h-8 py-1.5' : 'min-h-9 py-2'
 
   return (
     <div ref={containerRef} className={cn('relative', className)}>
@@ -296,15 +297,20 @@ export function Select({
         aria-expanded={open}
         aria-label={ariaLabel}
         className={cn(
-          'flex w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] px-3 text-[13px] leading-none text-[var(--color-text-primary)] transition-colors outline-none',
+          'flex w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] px-3 text-[13px] leading-snug text-[var(--color-text-primary)] transition-colors outline-none',
           'hover:border-[var(--color-border-strong)]',
           'focus-visible:border-[var(--color-brand-purple)] focus-visible:shadow-[0_0_0_3px_rgba(91,82,214,0.10)]',
-          triggerHeight,
+          triggerSizing,
           disabled && 'cursor-not-allowed opacity-60',
           triggerClassName
         )}
       >
-        <span className={cn('truncate', !selected && 'text-[var(--color-text-muted)]')}>
+        <span
+          className={cn(
+            'min-w-0 flex-1 overflow-x-hidden text-ellipsis whitespace-nowrap text-left',
+            !selected && 'text-[var(--color-text-muted)]'
+          )}
+        >
           {label}
         </span>
         <ChevronDown
@@ -338,12 +344,14 @@ export function Select({
                   buttonRef.current?.focus()
                 }}
                 className={cn(
-                  'flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-[13px] leading-none text-[var(--color-text-primary)]',
+                  'flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-[13px] leading-snug text-[var(--color-text-primary)]',
                   isActive && 'bg-[var(--color-bg-raised)]',
                   isSelected && 'font-medium'
                 )}
               >
-                <span className="truncate">{opt.label}</span>
+                <span className="min-w-0 flex-1 overflow-x-hidden text-ellipsis whitespace-nowrap text-left">
+                  {opt.label}
+                </span>
                 {isSelected ? (
                   <Check
                     className="size-3.5 text-[var(--color-brand-purple)]"

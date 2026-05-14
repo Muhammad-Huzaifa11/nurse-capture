@@ -218,7 +218,7 @@ export function SeatsAdmin() {
           </div>
 
           <form onSubmit={handleCreate} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-start-1 sm:row-start-1">
               <Eyebrow>Unit</Eyebrow>
               <Select
                 value={formUnit}
@@ -228,7 +228,7 @@ export function SeatsAdmin() {
                 ariaLabel="Unit"
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-start-2 sm:row-start-1">
               <Eyebrow>Shift</Eyebrow>
               <Select
                 value={formShift}
@@ -237,7 +237,17 @@ export function SeatsAdmin() {
                 ariaLabel="Shift"
               />
             </div>
-            <div className="flex items-end">
+            <div className="space-y-1.5 sm:col-span-3 sm:col-start-1 sm:row-start-2">
+              <Eyebrow>Notes (optional)</Eyebrow>
+              <TextArea
+                rows={2}
+                maxLength={200}
+                value={formNotes}
+                onChange={(e) => setFormNotes(e.target.value)}
+                placeholder="Internal note for this seat (e.g. break-room tablet)"
+              />
+            </div>
+            <div className="flex items-end sm:col-start-3 sm:row-start-1">
               <Button
                 type="submit"
                 variant="filled"
@@ -247,17 +257,6 @@ export function SeatsAdmin() {
               >
                 {creating ? 'Creating…' : 'Create seat'}
               </Button>
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-3">
-              <Eyebrow>Notes (optional)</Eyebrow>
-              <TextArea
-                rows={2}
-                maxLength={200}
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                placeholder="Internal note for this seat (e.g. break-room tablet)"
-              />
             </div>
           </form>
 
