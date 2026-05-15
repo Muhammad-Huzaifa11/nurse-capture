@@ -36,7 +36,7 @@ export default defineConfig({
         short_name: 'Capture',
         description:
           'One-tap capture of workflow interruptions and compensations. Anonymous, fast, offline-friendly.',
-        theme_color: '#5b52d6',
+        theme_color: '#5B3FD4',
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',

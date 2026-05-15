@@ -9,7 +9,7 @@ export default defineConfig({
       ...minimal2023Preset.maskable,
       resizeOptions: {
         ...minimal2023Preset.maskable.resizeOptions,
-        background: '#5b52d6',
+        background: '#5B3FD4',
       },
     },
     /** Apple touch icon must have an opaque background (iOS does not respect
@@ -18,7 +18,7 @@ export default defineConfig({
       ...minimal2023Preset.apple,
       resizeOptions: {
         ...minimal2023Preset.apple.resizeOptions,
-        background: '#5b52d6',
+        background: '#5B3FD4',
       },
     },
   },

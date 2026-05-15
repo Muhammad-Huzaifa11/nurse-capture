@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Download, Share } from 'lucide-react'
+import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/system/primitives'
 import { useAuth } from '@/auth/AuthContext'
 import { usePwaInstall } from '@/lib/usePwaInstall'
@@ -52,8 +53,8 @@ export function AppHeader() {
           to="/"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:text-[var(--color-brand-purple)] sm:gap-2"
         >
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-[var(--color-brand-purple)] text-white">
-            <span className="block size-1.5 rounded-full bg-white" aria-hidden />
+          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-[#5B3FD4] text-white">
+            <BrandMark className="size-3.5" />
           </span>
           <span className="min-w-0 truncate">Invisible workload</span>
         </Link>
