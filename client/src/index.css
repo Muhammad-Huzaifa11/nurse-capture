@@ -239,21 +239,35 @@
     }
 
     /**
-     * Hide native date-picker chrome; Lucide calendar button provides the affordance.
-     * Invisible indicator stays tappable on the right where the icon sits.
+     * Hide native date-picker chrome (Android chevron + desktop calendar).
+     * Open picker via the Lucide calendar button or by focusing the field.
      */
+    .date-field-input {
+        appearance: none;
+        -webkit-appearance: none;
+        max-width: 100%;
+    }
+
     .date-field-input::-webkit-calendar-picker-indicator {
-        position: absolute;
-        right: 0;
-        width: 2.25rem;
-        height: 100%;
+        display: none;
+        -webkit-appearance: none;
+        appearance: none;
+        width: 0;
+        height: 0;
         margin: 0;
         padding: 0;
         opacity: 0;
-        cursor: pointer;
+        pointer-events: none;
+    }
+
+    .date-field-input::-webkit-inner-spin-button,
+    .date-field-input::-webkit-clear-button {
+        display: none;
+        -webkit-appearance: none;
     }
 
     .date-field-input::-webkit-date-and-time-value {
         text-align: left;
+        min-width: 0;
     }
 }

@@ -53,8 +53,8 @@ export function DashboardToolbar({
           className="w-full min-w-0 md:w-auto md:min-w-[160px]"
         />
         {datePreset === 'custom' && (
-          <div className="flex w-full min-w-0 max-w-full flex-col gap-3 md:inline-flex md:w-auto md:max-w-none md:flex-row md:items-end md:gap-3">
-            <div className="flex min-w-0 max-w-full flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+          <div className="flex w-full min-w-0 max-w-full flex-col gap-3 md:w-auto md:max-w-full md:flex-row md:flex-wrap md:items-end md:gap-3">
+            <div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 md:w-auto md:flex-row md:items-center md:gap-2">
               <label
                 htmlFor="dashboard-custom-start"
                 className="block shrink-0 text-[12px] font-medium leading-none text-[var(--color-text-secondary)]"
@@ -65,10 +65,11 @@ export function DashboardToolbar({
                 id="dashboard-custom-start"
                 value={customStart}
                 onChange={(e) => setCustomStart(e.target.value)}
-                className="h-8 min-w-0 flex-1 md:w-auto md:min-w-[150px] md:flex-initial"
+                className="w-full md:min-w-[150px] md:max-w-[11rem]"
+                inputClassName="h-8"
               />
             </div>
-            <div className="flex min-w-0 max-w-full flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+            <div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 md:w-auto md:flex-row md:items-center md:gap-2">
               <label
                 htmlFor="dashboard-custom-end"
                 className="block shrink-0 text-[12px] font-medium leading-none text-[var(--color-text-secondary)]"
@@ -79,7 +80,8 @@ export function DashboardToolbar({
                 id="dashboard-custom-end"
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                className="h-8 min-w-0 flex-1 md:w-auto md:min-w-[150px] md:flex-initial"
+                className="w-full md:min-w-[150px] md:max-w-[11rem]"
+                inputClassName="h-8"
               />
             </div>
           </div>
