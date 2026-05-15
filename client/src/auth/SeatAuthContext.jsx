@@ -20,7 +20,7 @@ const SEAT_SNAPSHOT_KEY = 'nurse-capture-seat-snapshot'
  * @property {boolean} isOnline
  * @property {string | null} lastDisconnectReason
  * @property {(code: string) => Promise<void>} redeemCode
- * @property {() => void} clearSeat
+ * @property {(reason?: string | null) => void} clearSeat
  * @property {(path: string, init?: RequestInit) => Promise<Response>} seatFetch
  */
 

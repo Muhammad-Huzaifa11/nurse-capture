@@ -79,24 +79,14 @@ export default defineConfig({
         skipWaiting: true,
         runtimeCaching: [
           /**
-           * POST /api/events: queue failed requests via Background Sync.
-           * On reconnect the SW retries automatically (Workbox handles this).
-           * Queue lives 24h; events older than that get dropped (acceptable
-           * for a workflow signal that's already stale).
+           * POST /api/events: network-only (no Background Sync — Safari/iOS).
+           * Offline captures are queued in IndexedDB in the app and replayed from there.
            */
           {
             urlPattern: ({ url, request }) =>
               request.method === 'POST' && url.pathname === '/api/events',
             handler: 'NetworkOnly',
             method: 'POST',
-            options: {
-              backgroundSync: {
-                name: 'events-queue',
-                options: {
-                  maxRetentionTime: 24 * 60, // minutes
-                },
-              },
-            },
           },
           /**
            * Auth and analytics: always go to the network. We don't want stale

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowRight,
   ChevronDown,
@@ -12,16 +12,33 @@ import { AppHeader } from '@/components/AppHeader'
 import { Button, TextArea, TextField } from '@/components/system/primitives'
 import { cn } from '@/lib/utils'
 import { useSeatAuth } from '@/auth/SeatAuthContext'
+import { authApiFetch } from '@/lib/api'
+import {
+  enqueueCapture,
+  getOutboxCountForSeat,
+  removeAllForSeat,
+  runCaptureOutboxFlush,
+} from '@/lib/captureEventOutbox'
 
 type SignalType = 'interruption' | 'compensation'
 
 type CardStatus = 'idle' | 'submitting' | 'success'
 
-const PENDING_COUNT_KEY = 'nurse-capture-pending-count'
-
 /** Matches server `SEAT_CAPTURE_COOLDOWN_MS` — shared cooldown after any capture. */
-const CAPTURE_COOLDOWN_SEC = 15
+const CAPTURE_COOLDOWN_SEC = 8
 const CAPTURE_COOLDOWN_MS = CAPTURE_COOLDOWN_SEC * 1000
+
+/**
+ * `fetch` rejected before an HTTP response (lie-fi, DNS, connection reset, etc.).
+ * Not used for `throw new Error(...)` after a non-OK response — those stay on-screen errors.
+ */
+function isFetchNetworkFailure(error: unknown): boolean {
+  if (error instanceof TypeError) return true
+  if (error instanceof DOMException) {
+    return error.name === 'NetworkError' || error.name === 'TimeoutError'
+  }
+  return false
+}
 
 function captureCooldownStorageKey(seatId: string) {
   return `nurse-capture-capture-cooldown-until-${seatId}`
@@ -225,30 +242,8 @@ type SeatLite = {
   shift: string
 }
 
-function readPendingCount(): number {
-  try {
-    const raw = window.localStorage.getItem(PENDING_COUNT_KEY)
-    const n = raw ? Number(raw) : 0
-    return Number.isFinite(n) && n > 0 ? n : 0
-  } catch (_err) {
-    return 0
-  }
-}
-
-function writePendingCount(n: number) {
-  try {
-    if (n <= 0) {
-      window.localStorage.removeItem(PENDING_COUNT_KEY)
-    } else {
-      window.localStorage.setItem(PENDING_COUNT_KEY, String(n))
-    }
-  } catch (_err) {
-    /* non-fatal */
-  }
-}
-
 function CaptureScreen({ seat }: { seat: SeatLite }) {
-  const { seatFetch, clearSeat, isOnline, isStale } = useSeatAuth()
+  const { seatFetch, clearSeat, isOnline, isStale, token } = useSeatAuth()
 
   const [note, setNote] = useState('')
   const [showContext, setShowContext] = useState(false)
@@ -256,7 +251,12 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [interruptionStatus, setInterruptionStatus] = useState<CardStatus>('idle')
   const [compensationStatus, setCompensationStatus] = useState<CardStatus>('idle')
-  const [pendingCount, setPendingCount] = useState<number>(() => readPendingCount())
+  const [outboxCount, setOutboxCount] = useState(0)
+  const isFlushingRef = useRef(false)
+  const mountedRef = useRef(true)
+  const tokenRef = useRef(token)
+  tokenRef.current = token
+
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(() =>
     readCooldownUntil(seat.id)
   )
@@ -275,6 +275,56 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
   }, [seat.id])
 
   useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const requestFlush = useCallback(() => {
+    void runCaptureOutboxFlush(
+      {
+        seatId: seat.id,
+        postEvent: (body) =>
+          authApiFetch('/events', tokenRef.current, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          }),
+        on401: () => clearSeat('Your session ended. Enter your code to continue.'),
+        onQueueChange: (c) => {
+          if (mountedRef.current) setOutboxCount(c)
+        },
+        shouldAbort: () => !mountedRef.current,
+      },
+      isFlushingRef
+    )
+  }, [seat.id, clearSeat])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const c = await getOutboxCountForSeat(seat.id)
+      if (cancelled) return
+      setOutboxCount(c)
+      if (c > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+        requestFlush()
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [seat.id, requestFlush])
+
+  useEffect(() => {
+    const onOnline = () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) requestFlush()
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [requestFlush])
+
+  useEffect(() => {
     if (cooldownUntil == null || Date.now() >= cooldownUntil) return
     const id = window.setInterval(() => {
       setCooldownTick((x) => x + 1)
@@ -289,29 +339,6 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
   function armCooldown(untilMs: number) {
     setCooldownUntil(untilMs)
     writeCooldownUntil(seat.id, untilMs)
-  }
-
-  /**
-   * When the device comes back online and we have queued events, give the
-   * service worker a few seconds to flush its background sync queue, then
-   * clear the local indicator. The actual retry is the SW's job; this is
-   * just the UX telling the nurse "we're caught up."
-   */
-  useEffect(() => {
-    if (!isOnline || pendingCount === 0) return
-    const t = window.setTimeout(() => {
-      setPendingCount(0)
-      writePendingCount(0)
-    }, 5000)
-    return () => window.clearTimeout(t)
-  }, [isOnline, pendingCount])
-
-  function bumpPending() {
-    setPendingCount((prev) => {
-      const next = prev + 1
-      writePendingCount(next)
-      return next
-    })
   }
 
   async function submitSignal(signalType: SignalType) {
@@ -365,13 +392,21 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
       window.setTimeout(() => setStatus('idle'), 1800)
     } catch (error) {
       /**
-       * If the device is offline, the Workbox service worker has already
-       * queued the POST in IndexedDB and will retry on reconnect. We treat
-       * this as an optimistic success so the nurse never feels the network.
-       * Real errors (online but rejected) fall through to the error path.
+       * Offline or lie-fi (`fetch` throws while `navigator.onLine` may still be true):
+       * persist to IndexedDB; flush runs on `online`, mount, or immediately if online.
        */
-      if (!navigator.onLine) {
-        bumpPending()
+      const useOutbox = !navigator.onLine || isFetchNetworkFailure(error)
+      if (useOutbox) {
+        try {
+          await enqueueCapture(seat.id, payload)
+          const c = await getOutboxCountForSeat(seat.id)
+          setOutboxCount(c)
+          requestFlush()
+        } catch (_idbErr) {
+          setSubmitError('Could not save capture offline. Please try again.')
+          setStatus('idle')
+          return
+        }
         armCooldown(Date.now() + CAPTURE_COOLDOWN_MS)
         setStatus('success')
         setNote('')
@@ -430,7 +465,7 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
             {/* Gap, then connectivity */}
             <div className="mt-4">
-              <ConnectivityRow isOnline={isOnline} isStale={isStale} pendingCount={pendingCount} />
+              <ConnectivityRow isOnline={isOnline} isStale={isStale} outboxCount={outboxCount} />
             </div>
 
             <div className="mb-6 mt-6 space-y-1.5">
@@ -558,10 +593,15 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
       <ConfirmChangeSeatModal
         open={confirmChangeOpen}
-        pendingCount={pendingCount}
+        outboxCount={outboxCount}
         onCancel={() => setConfirmChangeOpen(false)}
-        onConfirm={() => {
+        onConfirm={async () => {
           setConfirmChangeOpen(false)
+          try {
+            await removeAllForSeat(seat.id)
+          } catch (_err) {
+            /* still leave seat */
+          }
           clearSeat()
         }}
       />
@@ -571,20 +611,20 @@ function CaptureScreen({ seat }: { seat: SeatLite }) {
 
 function ConfirmChangeSeatModal({
   open,
-  pendingCount,
+  outboxCount,
   onCancel,
   onConfirm,
 }: {
   open: boolean
-  pendingCount: number
+  outboxCount: number
   onCancel: () => void
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
 }) {
   if (!open) return null
 
-  const hasPending = pendingCount > 0
+  const hasPending = outboxCount > 0
   const description = hasPending
-    ? `You'll need to re-enter a code to keep capturing. You currently have ${pendingCount} pending ${pendingCount === 1 ? 'capture' : 'captures'} that will sync when you're back online.`
+    ? `You'll need to re-enter a code to keep capturing. You currently have ${outboxCount} pending ${outboxCount === 1 ? 'capture' : 'captures'} that will sync when you're back online.`
     : "You'll need to re-enter a code to keep capturing."
 
   return (
@@ -622,13 +662,13 @@ function ConfirmChangeSeatModal({
 function ConnectivityRow({
   isOnline,
   isStale,
-  pendingCount,
+  outboxCount,
 }: {
   isOnline: boolean
   isStale: boolean
-  pendingCount: number
+  outboxCount: number
 }) {
-  if (isOnline && pendingCount === 0 && !isStale) {
+  if (isOnline && outboxCount === 0 && !isStale) {
     return null
   }
 
@@ -638,12 +678,12 @@ function ConnectivityRow({
   if (!isOnline) {
     tone = 'warning'
     label =
-      pendingCount > 0
-        ? `Offline — ${pendingCount} ${pendingCount === 1 ? 'capture' : 'captures'} will sync when you reconnect`
+      outboxCount > 0
+        ? `Offline — ${outboxCount} ${outboxCount === 1 ? 'event' : 'events'} pending sync`
         : 'Offline — captures will sync when you reconnect'
-  } else if (pendingCount > 0) {
+  } else if (outboxCount > 0) {
     tone = 'info'
-    label = `Syncing ${pendingCount} ${pendingCount === 1 ? 'capture' : 'captures'}…`
+    label = `${outboxCount} ${outboxCount === 1 ? 'event' : 'events'} pending sync`
   } else if (isStale) {
     tone = 'info'
     label = 'Reconnecting…'
