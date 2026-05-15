@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { ChevronDown, Check } from 'lucide-react'
+import { Calendar, ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -409,3 +409,57 @@ export const TextField = React.forwardRef<HTMLInputElement, InputProps>(
   }
 )
 TextField.displayName = 'TextField'
+
+/** DateField — `type="date"` with a single Lucide calendar affordance on the right. */
+
+type DateFieldProps = Omit<InputProps, 'type'>
+
+export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(
+  ({ className, id, ...rest }, ref) => {
+    const inputRef = React.useRef<HTMLInputElement>(null)
+
+    React.useImperativeHandle(ref, () => inputRef.current as HTMLInputElement)
+
+    function openPicker() {
+      const el = inputRef.current
+      if (!el) return
+      if (typeof el.showPicker === 'function') {
+        try {
+          el.showPicker()
+          return
+        } catch {
+          /* Safari may throw if not user-gesture; fall through */
+        }
+      }
+      el.focus()
+      el.click()
+    }
+
+    return (
+      <div className="relative min-w-0">
+        <input
+          ref={inputRef}
+          id={id}
+          type="date"
+          className={cn(
+            'date-field-input relative',
+            'h-9 w-full rounded-[var(--radius-sm)] border-[0.5px] border-[var(--color-border-soft)] bg-[var(--color-bg-surface)] py-0 pl-3 pr-9 text-[13px] text-[var(--color-text-primary)] transition-colors outline-none',
+            'focus-visible:border-[var(--color-brand-purple)] focus-visible:shadow-[0_0_0_3px_rgba(91,82,214,0.10)]',
+            className
+          )}
+          {...rest}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Open date picker"
+          onClick={openPicker}
+          className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] outline-none hover:text-[var(--color-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-purple)] focus-visible:outline-offset-1"
+        >
+          <Calendar className="size-3.5" strokeWidth={1.75} aria-hidden />
+        </button>
+      </div>
+    )
+  }
+)
+DateField.displayName = 'DateField'

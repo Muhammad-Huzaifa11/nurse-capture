@@ -94,15 +94,6 @@ export function AppHeader() {
             <Button variant="ghost" size="sm" className="max-sm:px-2" onClick={handleLogout}>
               Logout
             </Button>
-          ) : !isAuthenticated ? (
-            <Button
-              variant="filled"
-              size="sm"
-              className="max-sm:px-2.5"
-              onClick={() => navigate('/login')}
-            >
-              Login
-            </Button>
           ) : null}
         </div>
       </div>

@@ -18,6 +18,19 @@ export function LoginPage() {
     return <Navigate to="/dashboard" replace />
   }
 
+  const redirectedFrom =
+    typeof location.state === 'object' &&
+    location.state &&
+    'from' in location.state &&
+    typeof location.state.from === 'string'
+      ? location.state.from
+      : null
+
+  const subtitle =
+    redirectedFrom === '/dashboard' || redirectedFrom?.startsWith('/admin')
+      ? 'Sign in to view the dashboard.'
+      : 'Access the analytics dashboard.'
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (isSubmitting) return
@@ -68,9 +81,7 @@ export function LoginPage() {
       <main className="mx-auto flex w-full max-w-[1100px] items-start justify-center px-6 py-14">
         <Card raised className="w-full max-w-[400px] p-6 fade-in">
           <h1 className="text-xl-tight text-[var(--color-text-primary)]">Admin sign in</h1>
-          <p className="mt-1 text-[13px] text-[var(--color-text-secondary)]">
-            Access the analytics dashboard.
-          </p>
+          <p className="mt-1 text-[13px] text-[var(--color-text-secondary)]">{subtitle}</p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div className="space-y-1.5">

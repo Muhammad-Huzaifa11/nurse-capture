@@ -237,4 +237,23 @@
             transform: scaleY(1);
         }
     }
+
+    /**
+     * Hide native date-picker chrome; Lucide calendar button provides the affordance.
+     * Invisible indicator stays tappable on the right where the icon sits.
+     */
+    .date-field-input::-webkit-calendar-picker-indicator {
+        position: absolute;
+        right: 0;
+        width: 2.25rem;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    .date-field-input::-webkit-date-and-time-value {
+        text-align: left;
+    }
 }

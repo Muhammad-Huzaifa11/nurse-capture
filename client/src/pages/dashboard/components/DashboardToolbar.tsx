@@ -1,5 +1,5 @@
-import { Calendar, Download } from 'lucide-react'
-import { Button, Select, TextField } from '@/components/system/primitives'
+import { Download } from 'lucide-react'
+import { Button, DateField, Select } from '@/components/system/primitives'
 import {
   DATE_PRESET_OPTIONS,
   GRANULARITY_OPTIONS,
@@ -61,20 +61,12 @@ export function DashboardToolbar({
               >
                 Start date
               </label>
-              <div className="flex min-w-0 max-w-full items-center gap-2 md:contents">
-                <Calendar
-                  className="size-3.5 shrink-0 text-[var(--color-text-muted)] md:hidden"
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
-                <TextField
-                  id="dashboard-custom-start"
-                  type="date"
-                  value={customStart}
-                  onChange={(e) => setCustomStart(e.target.value)}
-                  className="h-8 min-w-0 flex-1 md:w-auto md:min-w-[150px] md:flex-initial"
-                />
-              </div>
+              <DateField
+                id="dashboard-custom-start"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="h-8 min-w-0 flex-1 md:w-auto md:min-w-[150px] md:flex-initial"
+              />
             </div>
             <div className="flex min-w-0 max-w-full flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
               <label
@@ -83,20 +75,12 @@ export function DashboardToolbar({
               >
                 End date
               </label>
-              <div className="flex min-w-0 max-w-full items-center gap-2 md:contents">
-                <Calendar
-                  className="size-3.5 shrink-0 text-[var(--color-text-muted)] md:hidden"
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
-                <TextField
-                  id="dashboard-custom-end"
-                  type="date"
-                  value={customEnd}
-                  onChange={(e) => setCustomEnd(e.target.value)}
-                  className="h-8 min-w-0 flex-1 md:w-auto md:min-w-[150px] md:flex-initial"
-                />
-              </div>
+              <DateField
+                id="dashboard-custom-end"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="h-8 min-w-0 flex-1 md:w-auto md:min-w-[150px] md:flex-initial"
+              />
             </div>
           </div>
         )}
@@ -126,4 +110,3 @@ export function DashboardToolbar({
     </section>
   )
 }
-
